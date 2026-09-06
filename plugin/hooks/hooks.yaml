@@ -1,0 +1,7 @@
+hooks:
+  - event: SessionStart
+    type: command
+    command: ./hooks/scripts/session-status.sh
+  - event: Stop
+    type: command
+    command: ./hooks/scripts/fast-verify.sh

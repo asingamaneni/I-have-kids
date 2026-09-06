@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "subject": "english",
+  "title": "Capability-based language pathway",
+  "concepts": [
+    { "id": "english.beginning-sounds", "subject": "english", "title": "Beginning sounds", "description": "Hear and name the first sound in familiar words.", "step": 0, "prerequisites": [], "readinessConceptIds": [], "activityKinds": ["phonics-picture-word"], "allowEarlyIntroduction": true, "stages": [
+      { "stage": "concrete", "deliveryMode": "guided-screen", "evidencePurpose": "exploration", "generator": "english.beginning-sounds", "minimumConfirmed": 1, "minimumAverage": 0 },
+      { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "english.beginning-sounds", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+    ] },
+    { "id": "english.letter-formation", "subject": "english", "title": "Letter formation", "description": "Form familiar letters through movement, tracing, and writing.", "step": 1, "prerequisites": [], "readinessConceptIds": ["english.beginning-sounds"], "activityKinds": ["handwriting-writing"], "allowEarlyIntroduction": true, "stages": [
+      { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "english.letter-formation", "minimumConfirmed": 1, "minimumAverage": 0 },
+      { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "english.letter-formation", "minimumConfirmed": 2, "minimumAverage": 0.8 }
+    ] },
+    { "id": "english.reading-for-detail", "subject": "english", "title": "Reading for detail", "description": "Use details from a short text to answer and explain.", "step": 2, "prerequisites": ["english.beginning-sounds"], "readinessConceptIds": ["english.beginning-sounds"], "activityKinds": ["reading-comprehension"], "allowEarlyIntroduction": true, "stages": [
+      { "stage": "concrete", "deliveryMode": "guided-screen", "evidencePurpose": "exploration", "generator": "english.reading-for-detail", "minimumConfirmed": 1, "minimumAverage": 0 },
+      { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "formative", "generator": "english.reading-for-detail", "minimumConfirmed": 2, "minimumAverage": 0.8 },
+      { "stage": "abstract", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "english.reading-for-detail", "minimumConfirmed": 3, "minimumAverage": 0.85 }
+    ] }
+  ]
+}
