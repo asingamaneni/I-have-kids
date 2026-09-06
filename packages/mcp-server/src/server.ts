@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { createLocalService, resolveProjectRoot, type LocalService } from "./service.js";
+
+export { createLocalService, resolveProjectRoot } from "./service.js";
+export type { LocalService, LocalServiceOptions, DemoStatus } from "./service.js";
+
+const okSchema = z.object({ ok: z.literal(true), result: z.unknown() });
+const text = (value: unknown): string => typeof value === "string" ? value : JSON.stringify(value);
+const success = (result: unknown) => ({ content: [{ type: "text" as const, text: text(result) }], structuredContent: { ok: true as const, result } });
+const failure = (error: unknown) => ({ content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }], isError: true as const });
+
+function withErrors<T extends (...args: any[]) => any>(handler: T) {
+  return async (...args: Parameters<T>) => {
+    try { return success(await handler(...args)); } catch (error) { return failure(error); }
+  };
+}
+
+const studentId = z.string().min(1);
+const now = z.string().datetime({ offset: true }).optional();
+const operationKey = z.string().min(1).optional();
+
+export function createMcpServer(service = createLocalService()): McpServer {
+  const server = new McpServer({ name: "kindergarten-local", version: "1.0.0" });
+  const register = (name: string, description: string, inputSchema: z.ZodTypeAny, handler: (...args: any[]) => any) => {
+    server.registerTool(name, { description, inputSchema, outputSchema: okSchema }, withErrors(handler));
+  };
+
+  register("initialize_demo", "Seed the local kindergarten demo idempotently; never resets existing data.", z.object({ now }), async ({ now: at }: { now?: string }) => service.initializeDemo(at));
+  register("demo_status", "Inspect local demo database counts and paths.", z.object({}), async () => service.demoStatus());
+  register("list_students", "List local students without exposing answer keys.", z.object({}), async () => service.listStudents());
+  register("create_student", "Create a local learner profile. School placement is context only and never limits the learning path.", z.object({ id: studentId.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), reportedCapabilities: z.array(z.enum(["math.counts-to-10", "math.recognizes-teen-numbers", "math.adds-with-objects", "math.adds-with-symbols", "math.subtracts-with-objects", "math.subtracts-with-symbols", "english.hears-beginning-sounds", "english.reads-short-text", "english.writes-letters-words", "reasoning.continues-patterns", "reasoning.sorts-and-explains", "science.observes-and-describes"])).optional(), baselineNotes: z.string().min(1).optional(), baselineStatus: z.enum(["unassessed", "diagnostic-in-progress", "established"]).optional() }), async (input: any) => service.createStudent(input));
+  register("get_student_context", "Get one student's activities, progress, and timeline in a child-safe form.", z.object({ studentId }), async ({ studentId: id }: { studentId: string }) => service.getStudentContext(id));
+  register("generate_activity", "Generate deterministic original practice for an explicit concept and concrete, pictorial, or abstract learning stage.", z.object({ subject: z.enum(["math", "english", "reasoning", "science"]).optional(), conceptId: studentId.optional(), generator: studentId.optional(), seed: z.number().int(), studentId: studentId.optional(), itemCount: z.number().int().min(1).max(10).optional(), representationStage: z.enum(["concrete", "pictorial", "abstract"]).optional(), now }), async (input: any) => service.generateActivity(input));
+  register("validate_and_store_activity", "Validate a proposed ActivitySpec, check item answers and difficulty bounds, then persist it locally.", z.object({ spec: z.unknown() }), async ({ spec }: { spec: unknown }) => service.validateAndStoreActivity(spec));
+  register("get_activity", "Read an activity; answer specifications are returned only when adult is true.", z.object({ activityId: studentId, adult: z.boolean().default(false) }), async ({ activityId, adult }: { activityId: string; adult: boolean }) => service.getActivity(activityId, adult));
+  register("record_digital_submission", "Persist a digital submission, deterministically score it, append progress evidence, and update the projected concept state.", z.object({ id: studentId, activityId: studentId, studentId, responses: z.array(z.object({ itemId: studentId, value: z.unknown(), capturedAt: z.string().datetime({ offset: true }) })).default([]), submittedAt: now, operationKey }), async (input: any) => service.recordDigitalSubmission(input));
+  register("propose_uploaded_work_evaluation", "Store Claude Code-assisted transcription evidence as an evaluation that always requires human review.", z.object({ submissionId: studentId, conceptId: studentId.optional(), score: z.number().min(0).max(1).optional(), evidence: z.array(z.string().min(1)).min(1), confidence: z.number().min(0).max(1), items: z.array(z.object({ itemId: studentId, score: z.number().min(0).max(1), mistakeTags: z.array(z.string()).default([]), evidenceStatus: z.enum(["confirmed", "unconfirmed", "ambiguous"]), rationale: z.string().min(1) })).optional(), rationale: z.string().optional(), now }), async (input: any) => service.proposeUploadedWorkEvaluation(input));
+  register("confirm_evaluation", "Append an adult-reviewed score and rationale without changing the original evaluation row.", z.object({ evaluationId: studentId, reviewerId: studentId, score: z.number().min(0).max(1), rationale: z.string().min(1), now }), async (input: any) => service.confirmEvaluation(input));
+  register("reject_evaluation", "Append a human rejection/superseding evaluation without changing the original evaluation row.", z.object({ evaluationId: studentId, reviewerId: studentId, reason: z.string().min(1), now }), async (input: any) => service.rejectEvaluation(input));
+  register("get_progress", "Read current projected concept progress and append-only progress history.", z.object({ studentId, conceptId: studentId.optional() }), async ({ studentId: id, conceptId }: { studentId: string; conceptId?: string }) => service.getProgress(id, conceptId));
+  register("get_learning_path", "Read capability-based concept availability, current concrete/pictorial/abstract stages, and active adult directives. School grade is context only.", z.object({ studentId }), async ({ studentId: id }: { studentId: string }) => service.getLearningPath(id));
+  register("apply_learning_directive", "Append an adult directive to introduce, prioritize, defer, or clear a concept without claiming prerequisite mastery.", z.object({ id: studentId, studentId, conceptId: studentId, action: z.enum(["introduce", "assess", "prioritize", "defer", "clear"]), reason: z.string().min(1), authorId: studentId, requestedStage: z.enum(["concrete", "pictorial", "abstract"]).optional(), priority: z.number().int().min(1).max(5).optional(), expiresAt: now, operationKey }), async (input: any) => service.applyLearningDirective(input));
+  register("recommend_next_activity", "Rank locally stored activities using progress, review timing, session length, recent repetition, subject balance, and adult goals.", z.object({ studentId, now, availableMinutes: z.number().int().min(1).max(120).optional(), preferredSubject: z.enum(["math", "english", "reasoning", "science"]).optional(), adultGoalConceptIds: z.array(studentId).optional() }), async ({ studentId: id, ...options }: { studentId: string; now?: string; availableMinutes?: number; preferredSubject?: "math" | "english" | "reasoning" | "science"; adultGoalConceptIds?: string[] }) => service.recommendNextActivity(id, options));
+  register("get_timeline", "Read the append-only student timeline.", z.object({ studentId }), async ({ studentId: id }: { studentId: string }) => service.getTimeline(id));
+  register("get_artifact_lineage", "Inspect local parent and child edges for a stored artifact.", z.object({ artifactId: studentId }), async ({ artifactId }: { artifactId: string }) => service.getArtifactLineage(artifactId));
+  register("apply_override", "Append a clearly attributed adult override; never edit prior decisions.", z.object({ id: studentId, studentId, conceptId: studentId, targetStep: z.number().int().min(0).max(10), targetId: studentId.optional(), reason: z.string().min(1), authorId: studentId, operationKey }), async (input: any) => service.applyOverride(input));
+  register("reverse_override", "Append a reversal of an override; never delete or mutate the original.", z.object({ id: studentId, studentId, conceptId: studentId, targetId: studentId, reason: z.string().min(1), authorId: studentId, operationKey }), async (input: any) => service.reverseOverride(input));
+  register("generate_progress_report", "Create and persist a deterministic local progress report snapshot.", z.object({ studentId, now }), async ({ studentId: id, now: at }: { studentId: string; now?: string }) => service.generateProgressReport(id, at));
+  register("compose_visual_asset", "Compose original local SVG from allow-listed semantic shapes and store it locally; no external assets.", z.object({ id: studentId.optional(), width: z.number().int().min(1).max(2000).optional(), height: z.number().int().min(1).max(2000).optional(), shapes: z.array(z.record(z.string(), z.unknown())).min(1), metadata: z.record(z.string(), z.unknown()).optional() }), async (input: any) => service.composeVisualAsset(input));
+
+  server.registerResource("demo-status", "kindergarten://demo/status", { title: "Kindergarten demo status", description: "Local database status and counts", mimeType: "application/json" }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.demoStatus()) }] }));
+  const studentTemplate = new ResourceTemplate("kindergarten://students/{studentId}/progress", { list: undefined });
+  server.registerResource("student-progress", studentTemplate, { title: "Student progress", description: "Child-safe local progress state", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.getProgress(String(variables.studentId))) }] }));
+  const learningPathTemplate = new ResourceTemplate("kindergarten://students/{studentId}/learning-path", { list: undefined });
+  server.registerResource("student-learning-path", learningPathTemplate, { title: "Student learning path", description: "Capability-based concept availability and representation stages", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.getLearningPath(String(variables.studentId))) }] }));
+  const activityTemplate = new ResourceTemplate("kindergarten://activities/{activityId}", { list: undefined });
+  server.registerResource("activity-spec", activityTemplate, { title: "Activity specification", description: "Child-safe activity specification", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.getActivity(String(variables.activityId), false)) }] }));
+  const lineageTemplate = new ResourceTemplate("kindergarten://artifacts/{artifactId}/lineage", { list: undefined });
+  server.registerResource("artifact-lineage", lineageTemplate, { title: "Artifact lineage", description: "Local artifact ancestry and descendants", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(await service.getArtifactLineage(String(variables.artifactId))) }] }));
+  return server;
+}
+
+export async function runStdio(service?: LocalService): Promise<void> {
+  const ownedService = service ?? createLocalService({ projectRoot: resolveProjectRoot() });
+  const server = createMcpServer(ownedService);
+  const transport = new StdioServerTransport();
+  process.once("SIGINT", () => { ownedService.close(); process.exit(0); });
+  await server.connect(transport);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) runStdio().catch((error: unknown) => { process.stderr.write(`kindergarten-local MCP failed: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
