@@ -186,6 +186,175 @@ claude
 
 The application itself still requires no Anthropic API key. Claude Code uses the user's normal local Claude Code authentication and starts the bundled stdio MCP process from the project.
 
+## Use with Claude Code
+
+This integration runs in **Claude Code**, not directly in the Claude.ai website or the general Claude desktop chat. Parents need a normally authenticated Claude Code installation, but the learning application never asks for or stores an Anthropic API key.
+
+### Choose an installation mode
+
+The project-scoped Omniplug installation above exposes the flat command names documented in this repository, such as `/kindergarten-start`.
+
+For a temporary session without installing generated files into the project, launch the compiled target directly:
+
+```sh
+claude --plugin-dir "$PWD/dist/plugin/claude"
+```
+
+Native plugin-directory commands are normally namespaced, for example `/kindergarten-learning:kindergarten-start`. Run `/help` after launch and use the exact names Claude Code displays.
+
+### Start the application and Claude
+
+Use two terminals when the parent wants both Claude-assisted generation and the browser interface.
+
+Terminal 1 — browser application:
+
+```sh
+pnpm dev
+```
+
+Terminal 2 — Claude Code with the temporary plugin:
+
+```sh
+claude --plugin-dir "$PWD/dist/plugin/claude"
+```
+
+The plugin starts its bundled local stdio MCP server automatically. Do **not** also run `pnpm mcp`; that script is for MCP development and would start a second server. The web process is needed to view digital activities, print worksheets, upload paper work, and use adult review pages. Claude can generate and persist local activity specifications through MCP even when the web process is not running.
+
+### Start or resume a learner
+
+With a project-scoped installation:
+
+```text
+/kindergarten-start <learner-id-or-name>
+```
+
+With `--plugin-dir`:
+
+```text
+/kindergarten-learning:kindergarten-start <learner-id-or-name>
+```
+
+A learner created at `/setup` has an ID in the resulting child URL. The start command can also list local learners and load the selected learner's reported starting context, confirmed evidence, available concepts, representation stage, due reviews, and recent work.
+
+### Generate and store new material
+
+Start the learner first so subsequent commands have the correct local context. Examples below use the flat project-scoped command names; add the `kindergarten-learning:` namespace when using `--plugin-dir`.
+
+Create focused practice:
+
+```text
+/kindergarten-create-practice math math.addition-within-10 2 5
+```
+
+Create a picture-centered activity:
+
+```text
+/kindergarten-create-picture-activity math math.subtraction-within-10 practice 2
+```
+
+Parents can also use natural language after starting the learner:
+
+```text
+Create a 10-minute pictorial addition activity with five questions.
+Check the learner's current stage first, validate every answer, store the
+activity locally, and tell me the activity ID and why it was selected.
+```
+
+```text
+Introduce subtraction with household counters before giving a worksheet.
+Keep the adult-reported ability as a hypothesis until the child completes
+confirmed work.
+```
+
+```text
+Create a short mixed review using only concepts currently available to this
+learner. Include one due review and avoid concepts practiced recently.
+```
+
+Claude uses the local application to validate known answers, enforce concept-stage availability, persist the exact `ActivitySpec`, and return real artifact/activity IDs. Claude wording may personalize the material, but deterministic application code owns arithmetic, answer keys, scoring, progression, and storage.
+
+### Open generated material
+
+After Claude returns an activity ID, open:
+
+```text
+Digital activity:
+http://127.0.0.1:3000/child/<learner-id>/activity/<activity-id>
+
+Printable worksheet:
+http://127.0.0.1:3000/print/activity/<activity-id>
+
+Adult answer guide:
+http://127.0.0.1:3000/print/activity/<activity-id>/answers
+```
+
+The activity also appears on the learner's child shelf. The printable route has a **Print worksheet** button that opens the browser's print dialog.
+
+### Check work and review progress
+
+Digital submissions are scored deterministically by the application. For paper work, upload a PNG or JPEG through the child activity page, then confirm the proposed result in **Adult view → Reviews**. Photo and open-ended work cannot affect progress before adult confirmation.
+
+For an existing stored submission:
+
+```text
+/kindergarten-check-work <activity-id> <submission-id>
+```
+
+Do not pass a new local photo path to this command in the current release; upload the photo through the web interface first so it receives a stored submission ID and immutable lineage.
+
+Inspect confirmed progress:
+
+```text
+/kindergarten-progress <learner-id> <evaluation-id>
+```
+
+Explain one confirmed mistake:
+
+```text
+/kindergarten-explain-mistakes <evaluation-id> <item-id> child
+```
+
+Generate a new immutable adult report:
+
+```text
+/kindergarten-report <learner-id> 30-days
+```
+
+Reports can also be created and opened at:
+
+```text
+http://127.0.0.1:3000/adult/<learner-id>/reports
+```
+
+### Parent command reference
+
+| Purpose | Project-scoped command |
+|---|---|
+| Start or resume | `/kindergarten-start` |
+| Generate structured practice | `/kindergarten-create-practice` |
+| Generate picture material | `/kindergarten-create-picture-activity` |
+| Check stored work | `/kindergarten-check-work` |
+| Explain a confirmed mistake | `/kindergarten-explain-mistakes` |
+| Inspect/apply confirmed progress | `/kindergarten-progress` |
+| Create an adult report | `/kindergarten-report` |
+| Run repository verification | `/kindergarten-verify` |
+
+For `--plugin-dir`, prefix these names with `kindergarten-learning:`, and use `/help` as the authoritative command list.
+
+### Authentication and data boundary
+
+- Claude Code uses the parent's normal Claude Code authentication.
+- The application and MCP server require no `ANTHROPIC_API_KEY`.
+- Application code never autonomously sends child data to a model API.
+- When a parent deliberately uses Claude Code, prompts and the local context/tool results Claude reads are processed through that parent's configured Claude Code service. Keep profiles minimal and do not enter unnecessary identifying information.
+- SQLite files, uploaded work, and immutable artifacts stay under the configured local paths unless the parent explicitly asks Claude to read them.
+- Back up the database and artifact directory together.
+- Setting `LEARNING_ADULT_PIN` protects setup, reports, answer guides, adult pages, generation, and review routes in the browser.
+
+### Current distribution limitation
+
+The repository currently contains canonical Omniplug source and a generated local Claude target, not a Claude plugin marketplace manifest. Parents therefore use the documented project-scoped Omniplug installation or `claude --plugin-dir`; `/plugin install` from a marketplace is not yet available.
+
 The canonical plugin provides:
 
 - 13 focused skills, including practice generation, visual activities, work checking, progress, recommendations, reports, and curriculum authoring.
