@@ -63,25 +63,27 @@ function counterBoxes(total: number, groups: number): React.ReactNode {
   </div>;
 }
 
-function responseControl(activity: WorksheetActivity, item: WorksheetItem, options: Required<WorksheetRenderOptions>): React.ReactNode {
+function responseControl(activity: WorksheetActivity, item: WorksheetItem, options: Required<WorksheetRenderOptions>, questionNumber: number): React.ReactNode {
   const name = `response-${item.id}`;
   const answer = answerFor(activity, item.id);
+  const answerLabel = `Answer for question ${questionNumber}`;
   if (options.showAnswers) return <span className="answer-reveal" data-answer-for={item.id}>{answer}</span>;
   if (item.kind === "number-choice" || item.kind === "phonics-picture-word") {
     const choices = item.kind === "number-choice" ? item.choices.map(String) : (item.choices ?? []);
-    return <div className="choice-row" role="group" aria-label={`Choices for ${item.id}`}>
+    return <div className="choice-row" role="group" aria-label={`Answer choices for question ${questionNumber}`}>
       {choices.map((choice, index) => <label className="choice-chip" key={`${choice}-${index}`}><input type="radio" name={name} value={choice} /> <span>{choice}</span></label>)}
     </div>;
   }
-  if (item.kind === "handwriting-writing") return <textarea className="response-writing" name={name} aria-label={`Response for ${item.id}`} rows={2} placeholder="Write here" />;
-  if (item.kind === "reading-comprehension") return item.choices ? <select className="response-select" name={name} defaultValue=""><option value="" disabled>Choose an answer</option>{item.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select> : <input className="response-input" name={name} aria-label={`Response for ${item.id}`} />;
-  if (item.kind === "sequencing-reasoning") return <input className="response-input" name={name} aria-label={`Response for ${item.id}`} placeholder="Order" />;
-  if (item.kind === "science-observation") return <textarea className="response-writing" name={name} aria-label={`Response for ${item.id}`} rows={2} placeholder="What do you notice?" />;
-  return <input className="response-input response-number" name={name} inputMode="numeric" aria-label={`Response for ${item.id}`} />;
+  if (item.kind === "handwriting-writing") return <textarea className="response-writing" name={name} aria-label={answerLabel} rows={2} placeholder="Write here" />;
+  if (item.kind === "reading-comprehension") return item.choices ? <select className="response-select" name={name} aria-label={answerLabel} defaultValue=""><option value="" disabled>Choose an answer</option>{item.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select> : <input className="response-input" name={name} aria-label={answerLabel} />;
+  if (item.kind === "sequencing-reasoning") return <input className="response-input" name={name} aria-label={answerLabel} placeholder="Write the card numbers in order." />;
+  if (item.kind === "science-observation") return <textarea className="response-writing" name={name} aria-label={answerLabel} rows={2} placeholder="What do you notice?" />;
+  return <input className="response-input response-number" name={name} inputMode="numeric" aria-label={answerLabel} />;
 }
 
 function renderItem(activity: WorksheetActivity, item: WorksheetItem, index: number, options: Required<WorksheetRenderOptions>): React.ReactNode {
-  return <article className="worksheet-item" data-item-id={item.id} key={item.id}>
+  const pictureAnswerInline = options.mode === "print" && item.kind === "picture-addition-subtraction";
+  return <article className={`worksheet-item${item.kind === "picture-addition-subtraction" ? " worksheet-item-picture" : ""}`} data-item-id={item.id} key={item.id}>
     <div className="item-number" aria-hidden="true">{index + 1}</div>
     <div className="item-body">
       <p className="item-prompt">{itemPrompt(item)}</p>
@@ -90,16 +92,17 @@ function renderItem(activity: WorksheetActivity, item: WorksheetItem, index: num
           ? subtractionPictureGroup(item.assetRefs[0], item.leftCount, item.rightCount, options.assetBasePath, "pictures")
           : <>{pictureGroup(item.assetRefs[0], item.leftCount, options.assetBasePath, "pictures")}<span className="operation-mark">+</span>{pictureGroup(item.assetRefs[0], item.rightCount, options.assetBasePath, "pictures")}</>}
         {item.representation === "pictures-and-equation" && <span className="operation-mark">=</span>}
+        {pictureAnswerInline && responseControl(activity, item, options, index + 1)}
       </div>}
       {item.kind === "number-choice" && metadataCount(item, "dotCount") !== undefined && <div className="counting-dots" aria-label={`${metadataCount(item, "dotCount")} dots`}>{Array.from({ length: metadataCount(item, "dotCount") ?? 0 }, (_, dot) => <span className="counter" key={dot} aria-hidden="true">●</span>)}</div>}
       {item.kind === "phonics-picture-word" && <div className="phonics-visual">{picture(item.imageAssetRef, options.assetBasePath, `Picture of a ${item.targetWord}`)}<span className="word-label">{item.targetWord}</span></div>}
       {item.kind === "equation" && <div className="equation-display">{item.equation}</div>}
-      {item.kind === "reading-comprehension" && <section className="reading-model" aria-label="Short reading passage"><div className="model-label">Read this little passage</div><p className="passage">{item.passage}</p></section>}
-      {item.kind === "handwriting-writing" && <section className="writing-model" aria-label={`Writing guide: ${item.targetText}`}><div className="model-label">{item.mode === "trace" ? "Trace the model" : item.mode === "copy" ? "Copy the model" : "Write your own"}</div><div className={`trace-guide trace-${item.mode}`}>{item.mode === "free-write" ? "" : item.targetText}</div><div className="ruled-writing-space" aria-label="Ruled writing space">{Array.from({ length: item.targetText.length > 4 ? 3 : 2 }, (_, line) => <div className="writing-line" key={line} />)}</div></section>}
-      {item.kind === "equal-groups-fair-sharing" && <div className={`group-display group-${item.mode}`}><div className="model-label">{item.mode === "equal-groups" ? "Put the same amount in each box" : "Share one at a time"}</div>{counterBoxes(item.total, item.groupCount)}<span className="group-action" aria-hidden="true">{item.mode === "equal-groups" ? "same in every box" : "fair for every friend"}</span></div>}
-      {item.kind === "sequencing-reasoning" && <div className="sequence-display" aria-label="Reasoning cards">{item.sequence.map((part, partIndex) => <span key={`${part}-${partIndex}`} className="sequence-card"><b>{partIndex + 1}</b>{part}</span>)}</div>}
-      {item.kind === "science-observation" && <section className="science-prompt"><div className="model-label">Observe and tell an adult</div><p>{item.observationPrompt}</p><div className="feature-list">{item.observableFeatures.map((feature) => <span key={feature}>{feature}</span>)}</div>{item.safetyNote && <p className="safety-note">{item.safetyNote}</p>}</section>}
-      <div className="response-area">{responseControl(activity, item, options)}</div>
+      {item.kind === "reading-comprehension" && <section className="reading-model" aria-label="Short reading passage"><div className="model-label">Read the passage.</div><p className="passage">{item.passage}</p></section>}
+      {item.kind === "handwriting-writing" && <section className="writing-model" aria-label={`Writing guide: ${item.targetText}`}><div className="model-label">{item.mode === "trace" ? "Trace the example" : item.mode === "copy" ? "Copy the example" : "Write your own"}</div><div className={`trace-guide trace-${item.mode}`}>{item.mode === "free-write" ? "" : item.targetText}</div><div className="ruled-writing-space" aria-label="Ruled writing space">{Array.from({ length: item.targetText.length > 4 ? 3 : 2 }, (_, line) => <div className="writing-line" key={line} />)}</div></section>}
+      {item.kind === "equal-groups-fair-sharing" && <div className={`group-display group-${item.mode}`}><div className="model-label">{item.mode === "equal-groups" ? "Put the same number in each box" : "Share one at a time"}</div>{counterBoxes(item.total, item.groupCount)}<span className="group-action" aria-hidden="true">{item.mode === "equal-groups" ? "Each group must be equal." : "Each person gets the same number."}</span></div>}
+      {item.kind === "sequencing-reasoning" && <div className="sequence-display" aria-label="Cards for this question">{item.sequence.map((part, partIndex) => <span key={`${part}-${partIndex}`} className="sequence-card"><b>{partIndex + 1}</b>{part}</span>)}</div>}
+      {item.kind === "science-observation" && <section className="science-prompt"><div className="model-label">Observe.</div><p>{item.observationPrompt}</p><div className="feature-list">{item.observableFeatures.map((feature) => <span key={feature}>{feature}</span>)}</div>{item.safetyNote && <p className="safety-note">{item.safetyNote}</p>}</section>}
+      {!pictureAnswerInline && <div className="response-area">{responseControl(activity, item, options, index + 1)}</div>}
     </div>
   </article>;
 }
@@ -116,37 +119,84 @@ export function worksheetTemplateFor(activity: WorksheetActivity): string {
   }
 }
 
-/** Stable print pagination: the first page teaches, later pages give four items room to breathe. */
-export function worksheetPrintChunks(items: readonly WorksheetItem[]): WorksheetItem[][] {
-  if (items.length <= 3) return [items.slice() as WorksheetItem[]];
-  const pages: WorksheetItem[][] = [items.slice(0, 3) as WorksheetItem[]];
-  for (let offset = 3; offset < items.length; offset += 4) pages.push(items.slice(offset, offset + 4) as WorksheetItem[]);
-  return pages;
+function maximumPictureCount(activity: WorksheetActivity): number {
+  return Math.max(0, ...activity.items.map((item) => item.kind === "picture-addition-subtraction" ? item.leftCount + item.rightCount : 0));
+}
+
+export function worksheetPageSize(activity: WorksheetActivity): number {
+  if (activity.subject !== "math") return 4;
+  const firstKind = activity.items[0]?.kind;
+  if (firstKind === "picture-addition-subtraction") return maximumPictureCount(activity) > 12 ? 5 : 10;
+  if (firstKind === "equation" || firstKind === "number-choice") return 12;
+  if (firstKind === "equal-groups-fair-sharing") return 4;
+  return 6;
+}
+
+export function worksheetPrintChunks(items: readonly WorksheetItem[], pageSize = 4): WorksheetItem[][] {
+  const chunks: WorksheetItem[][] = [];
+  for (let offset = 0; offset < items.length; offset += pageSize) chunks.push(items.slice(offset, offset + pageSize) as WorksheetItem[]);
+  return chunks;
+}
+
+function worksheetGridClass(activity: WorksheetActivity): string {
+  if (activity.subject !== "math") return "worksheet-items-standard";
+  const firstKind = activity.items[0]?.kind;
+  if (firstKind === "picture-addition-subtraction" && maximumPictureCount(activity) > 12) return "worksheet-items-math worksheet-items-one-column";
+  if (firstKind === "equal-groups-fair-sharing") return "worksheet-items-math worksheet-items-one-column";
+  return "worksheet-items-math worksheet-items-two-column";
+}
+
+function subjectLabel(subject: WorksheetActivity["subject"]): string {
+  return subject.charAt(0).toUpperCase() + subject.slice(1);
+}
+
+function activityTypeLabel(activityType: WorksheetActivity["activityType"]): string {
+  switch (activityType) {
+    case "assessment": return "Check";
+    case "introduction": return "Learn";
+    case "review": return "Review";
+    default: return "Practice";
+  }
 }
 
 function WorksheetHeader({ activity, options, compact = false }: { activity: WorksheetActivity; options: Required<WorksheetRenderOptions>; compact?: boolean }): React.ReactNode {
-  if (compact) return <header className="worksheet-header worksheet-header-compact"><div className="worksheet-kicker"><span>{activity.subject}</span><span>{activity.id}</span></div><h2>{activity.title}</h2></header>;
-  return <header className="worksheet-header"><div className="worksheet-kicker"><span>{activity.subject}</span><span>Activity {activity.id}</span></div><div className="worksheet-title-row"><div><h1>{activity.title}</h1><p className="worksheet-objective">{activity.objectives[0]}</p></div><div className="worksheet-mark" aria-hidden="true">✦</div></div><div className="worksheet-meta"><label>Name <input defaultValue={options.studentName} readOnly={options.mode === "print"} name="studentName" /></label><label>Date <input defaultValue={options.dateLabel} readOnly={options.mode === "print"} name="date" /></label></div></header>;
+  if (options.mode === "print" && activity.subject === "math") return <header className={`worksheet-header worksheet-header-math${compact ? " worksheet-header-compact" : ""}`}><div className="worksheet-title-row"><div>{compact ? <h2>{activity.title}</h2> : <h1>{activity.title}</h1>}{!compact && <p className="worksheet-objective">{activity.objectives[0]}</p>}</div></div>{!compact && <div className="worksheet-meta"><label>Name <input defaultValue={options.studentName} readOnly name="studentName" /></label><label>Date <input defaultValue={options.dateLabel} readOnly name="date" /></label><label>Score <input readOnly name="score" /></label></div>}</header>;
+  if (compact) return <header className="worksheet-header worksheet-header-compact"><div className="worksheet-kicker"><span>{subjectLabel(activity.subject)}</span><span>Continued</span></div><h2>{activity.title}</h2></header>;
+  return <header className="worksheet-header"><div className="worksheet-kicker"><span>{subjectLabel(activity.subject)}</span><span>{activityTypeLabel(activity.activityType)}</span></div><div className="worksheet-title-row"><div><h1>{activity.title}</h1><p className="worksheet-objective">{activity.objectives[0]}</p></div></div><div className="worksheet-meta"><label>Name <input defaultValue={options.studentName} readOnly={options.mode === "print"} name="studentName" /></label><label>Date <input defaultValue={options.dateLabel} readOnly={options.mode === "print"} name="date" /></label></div></header>;
+}
+
+function worksheetDirections(activity: WorksheetActivity): string {
+  const first = activity.items[0];
+  if (first?.kind === "picture-addition-subtraction") return first.operation === "addition" ? "Add. Write each sum." : "Cross out the number taken away. Write how many are left.";
+  if (first?.kind === "equation") return first.equation.includes("+") ? "Add. Write each sum." : "Subtract. Write each difference.";
+  if (first?.kind === "number-choice") return "Count each set. Choose the correct number.";
+  if (first?.kind === "equal-groups-fair-sharing") return first.mode === "equal-groups" ? "Make equal groups. Write how many are in each group." : "Share equally. Write how many each person gets.";
+  return activity.instructions.slice(0, 2).join(" ");
 }
 
 function LearningPanels({ activity }: { activity: WorksheetActivity }): React.ReactNode {
-  return <><section className="directions-panel"><div className="panel-label">Today’s plan</div><ol>{activity.instructions.slice(0, 3).map((instruction) => <li key={instruction}>{instruction}</li>)}</ol></section><section className="strategy-panel"><div><div className="panel-label">Try one together</div><p>{activity.items[0]?.directions ?? "Look closely, then show what you know."}</p></div><div className="strategy-symbol" aria-hidden="true">{worksheetTemplateFor(activity) === "phonics-and-words" ? "A" : "1 + 1"}</div></section></>;
+  const directions = worksheetDirections(activity);
+  const showExample = activity.activityType !== "assessment" && activity.subject !== "math" && activity.items[0]?.directions;
+  return <><section className="directions-panel"><div className="panel-label">Directions</div><p>{directions}</p></section>{showExample && <section className="strategy-panel"><div><div className="panel-label">Example</div><p>{activity.items[0]!.directions}</p></div></section>}</>;
 }
 
 function PageFooter({ activity, page, total }: { activity: WorksheetActivity; page: number; total: number }): React.ReactNode {
-  return <footer className="worksheet-footer"><span>{activity.id}</span><span>{activity.estimatedMinutes} minute practice</span><span>Page {page} of {total}</span></footer>;
+  return <footer className="worksheet-footer"><span>{activity.title}</span><span>Page {page} of {total}</span></footer>;
 }
 
 function PrintWorksheet({ activity, options }: { activity: WorksheetActivity; options: Required<WorksheetRenderOptions> }): React.ReactNode {
-  const chunks = worksheetPrintChunks(activity.items);
+  const pageSize = worksheetPageSize(activity);
+  const chunks = worksheetPrintChunks(activity.items, pageSize);
   const answerPageCount = options.showAnswers && "answerSpecs" in activity && activity.answerSpecs ? 1 : 0;
   const total = chunks.length + answerPageCount;
-  return <div className="worksheet-pages">{chunks.map((chunk, pageIndex) => <section className="worksheet-page" data-page-number={pageIndex + 1} data-page-count={total} key={`page-${pageIndex}`}><WorksheetHeader activity={activity} options={options} compact={pageIndex > 0} />{pageIndex === 0 && <LearningPanels activity={activity} />}<section className="worksheet-section"><div className="section-heading"><span>{pageIndex === 0 ? "Guided start" : pageIndex === chunks.length - 1 ? "Practice and quick check" : "Practice path"}</span><small>{pageIndex === 0 ? "Look and try" : pageIndex === chunks.length - 1 ? "Show your best thinking" : "Keep going"}</small></div>{chunk.map((item, index) => renderItem(activity, item, pageIndex === 0 ? index : pageIndex === 1 ? index + 3 : index + 3 + (pageIndex - 1) * 4, options))}</section><PageFooter activity={activity} page={pageIndex + 1} total={total} /></section>)}{answerPageCount === 1 && <section className="worksheet-page worksheet-answer-page" data-page-number={total} data-page-count={total}><WorksheetHeader activity={activity} options={options} compact /><aside className="answer-sheet"><h2>Adult answer sheet</h2><p>Keep this page with the completed work. Answers are not shown in child view.</p><ol>{activity.items.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside><PageFooter activity={activity} page={total} total={total} /></section>}</div>;
+  const mathClass = activity.subject === "math" ? " worksheet-page-math" : "";
+  const gridClass = worksheetGridClass(activity);
+  return <div className="worksheet-pages">{chunks.map((chunk, pageIndex) => <section className={`worksheet-page${mathClass}`} data-page-number={pageIndex + 1} data-page-count={total} key={`page-${pageIndex}`}><WorksheetHeader activity={activity} options={options} compact={pageIndex > 0} />{pageIndex === 0 && <LearningPanels activity={activity} />}<section className="worksheet-section"><div className="section-heading worksheet-problems-heading"><span>{activity.activityType === "assessment" ? "Questions" : "Practice"}</span></div><div className={gridClass}>{chunk.map((item, index) => renderItem(activity, item, pageIndex * pageSize + index, options))}</div></section><PageFooter activity={activity} page={pageIndex + 1} total={total} /></section>)}{answerPageCount === 1 && <section className="worksheet-page worksheet-answer-page" data-page-number={total} data-page-count={total}><WorksheetHeader activity={activity} options={options} compact /><aside className="answer-sheet"><h2>Adult answer sheet</h2><p>Keep this page with the completed work. Answers are not shown in child view.</p><ol>{activity.items.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside><PageFooter activity={activity} page={total} total={total} /></section>}</div>;
 }
 
 function DigitalWorksheet({ activity, options }: { activity: WorksheetActivity; options: Required<WorksheetRenderOptions> }): React.ReactNode {
   const guidedCount = Math.min(2, activity.items.length); const practiceItems = activity.items.slice(guidedCount, Math.max(guidedCount, activity.items.length - 1)); const checkItems = activity.items.slice(Math.max(guidedCount, activity.items.length - 1));
-  return <><WorksheetHeader activity={activity} options={options} /><LearningPanels activity={activity}/>{guidedCount > 0 && <section className="worksheet-section"><div className="section-heading"><span>Guided start</span><small>Look and try</small></div>{activity.items.slice(0, guidedCount).map((item, index) => renderItem(activity, item, index, options))}</section>}{practiceItems.length > 0 && <section className="worksheet-section"><div className="section-heading"><span>Practice path</span><small>Keep going</small></div>{practiceItems.map((item, index) => renderItem(activity, item, index + guidedCount, options))}</section>}{checkItems.length > 0 && <section className="worksheet-section quick-check"><div className="section-heading"><span>Quick check</span><small>Show your best thinking</small></div>{checkItems.map((item, index) => renderItem(activity, item, index + Math.max(guidedCount, activity.items.length - 1), options))}</section>}<PageFooter activity={activity} page={1} total={1}/>{options.showAnswers && "answerSpecs" in activity && activity.answerSpecs && <aside className="answer-sheet" aria-label="Adult answer sheet"><h2>Adult answer sheet</h2><ol>{activity.items.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside>}</>;
+  return <><WorksheetHeader activity={activity} options={options} /><LearningPanels activity={activity}/>{guidedCount > 0 && <section className="worksheet-section"><div className="section-heading"><span>Practice</span><small>Answer each question.</small></div>{activity.items.slice(0, guidedCount).map((item, index) => renderItem(activity, item, index, options))}</section>}{practiceItems.length > 0 && <section className="worksheet-section"><div className="section-heading"><span>More practice</span><small>Answer the next questions.</small></div>{practiceItems.map((item, index) => renderItem(activity, item, index + guidedCount, options))}</section>}{checkItems.length > 0 && <section className="worksheet-section quick-check"><div className="section-heading"><span>Review</span><small>Complete the last question.</small></div>{checkItems.map((item, index) => renderItem(activity, item, index + Math.max(guidedCount, activity.items.length - 1), options))}</section>}<PageFooter activity={activity} page={1} total={1}/>{options.showAnswers && "answerSpecs" in activity && activity.answerSpecs && <aside className="answer-sheet" aria-label="Adult answer sheet"><h2>Adult answer sheet</h2><ol>{activity.items.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside>}</>;
 }
 
 export function WorksheetRenderer({ activity, options: provided }: { activity: WorksheetActivity; options?: WorksheetRenderOptions }): React.ReactElement {
