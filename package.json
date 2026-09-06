@@ -1,0 +1,43 @@
+{
+  "name": "kindergarten-learning-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @kindergarten/web dev",
+    "build": "pnpm --filter @kindergarten/web build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx packages/database/src/migrate.ts",
+    "seed": "tsx packages/demo/src/seed.ts",
+    "demo": "tsx packages/demo/src/run-demo.ts",
+    "mcp": "tsx packages/mcp-server/src/server.ts",
+    "plugin:bundle": "tsx scripts/bundle-mcp.ts",
+    "plugin:validate": "pnpm plugin:bundle && go run github.com/asingamaneni/omniplug/cmd/omniplug@c0d7e55729c91f9d618380835ec356f312dcb1ef validate -s plugin -t claude",
+    "plugin:build": "pnpm plugin:bundle && go run github.com/asingamaneni/omniplug/cmd/omniplug@c0d7e55729c91f9d618380835ec356f312dcb1ef build -s plugin -o dist/plugin -t claude",
+    "verify:fast": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm plugin:validate",
+    "verify": "pnpm verify:fast && pnpm test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@playwright/test": "1.63.0",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.25.12",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.3.4",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.48.1",
+    "vitest": "5.0.0"
+  }
+}

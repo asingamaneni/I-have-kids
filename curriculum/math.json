@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0",
+  "subject": "math",
+  "title": "Capability-based math pathway",
+  "concepts": [
+    {
+      "id": "math.counting-to-10", "subject": "math", "title": "Counting to 10", "description": "Count collections and connect quantity to number.", "step": 0,
+      "prerequisites": [], "readinessConceptIds": [], "activityKinds": ["number-choice"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.counting-to-10", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.counting-to-10", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.addition-within-10", "subject": "math", "title": "Addition within 10", "description": "Join quantities using objects, pictures, and symbols.", "step": 1,
+      "prerequisites": ["math.counting-to-10"], "readinessConceptIds": ["math.counting-to-10"], "activityKinds": ["picture-addition-subtraction", "equation", "number-choice"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.addition-within-10", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "formative", "generator": "math.addition-within-10", "minimumConfirmed": 3, "minimumAverage": 0.85 },
+        { "stage": "abstract", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.addition-within-10", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.subtraction-within-10", "subject": "math", "title": "Subtraction within 10", "description": "Separate and compare quantities using objects, pictures, and symbols.", "step": 2,
+      "prerequisites": ["math.addition-within-10"], "readinessConceptIds": ["math.addition-within-10"], "activityKinds": ["picture-addition-subtraction", "equation"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.subtraction-within-10", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "formative", "generator": "math.subtraction-within-10", "minimumConfirmed": 3, "minimumAverage": 0.85 },
+        { "stage": "abstract", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.subtraction-within-10", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.teen-numbers", "subject": "math", "title": "Teen numbers", "description": "Build 11–20 as one group of ten and some more.", "step": 3,
+      "prerequisites": ["math.counting-to-10"], "readinessConceptIds": ["math.counting-to-10"], "activityKinds": ["number-choice"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.teen-numbers", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.teen-numbers", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.addition-within-20", "subject": "math", "title": "Addition within 20", "description": "Extend joining quantities through teen numbers and make-ten relationships.", "step": 4,
+      "prerequisites": ["math.addition-within-10", "math.teen-numbers"], "readinessConceptIds": ["math.addition-within-10", "math.teen-numbers"], "activityKinds": ["picture-addition-subtraction", "equation"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.addition-within-20", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "formative", "generator": "math.addition-within-20", "minimumConfirmed": 3, "minimumAverage": 0.85 },
+        { "stage": "abstract", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.addition-within-20", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.subtraction-within-20", "subject": "math", "title": "Subtraction within 20", "description": "Extend separating and comparing quantities through teen numbers.", "step": 5,
+      "prerequisites": ["math.subtraction-within-10", "math.teen-numbers"], "readinessConceptIds": ["math.subtraction-within-10", "math.teen-numbers"], "activityKinds": ["picture-addition-subtraction", "equation"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.subtraction-within-20", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "formative", "generator": "math.subtraction-within-20", "minimumConfirmed": 3, "minimumAverage": 0.85 },
+        { "stage": "abstract", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.subtraction-within-20", "minimumConfirmed": 3, "minimumAverage": 0.9 }
+      ]
+    },
+    {
+      "id": "math.equal-groups", "subject": "math", "title": "Equal groups", "description": "Build groups with the same quantity as a foundation for multiplication.", "step": 3,
+      "prerequisites": ["math.counting-to-10"], "readinessConceptIds": ["math.addition-within-10"], "activityKinds": ["equal-groups-fair-sharing"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.equal-groups", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.equal-groups", "minimumConfirmed": 3, "minimumAverage": 0.85 }
+      ]
+    },
+    {
+      "id": "math.fair-sharing", "subject": "math", "title": "Fair sharing", "description": "Share quantities fairly as a foundation for division.", "step": 4,
+      "prerequisites": ["math.equal-groups"], "readinessConceptIds": ["math.equal-groups"], "activityKinds": ["equal-groups-fair-sharing"], "allowEarlyIntroduction": true,
+      "stages": [
+        { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "math.fair-sharing", "minimumConfirmed": 1, "minimumAverage": 0 },
+        { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "math.fair-sharing", "minimumConfirmed": 3, "minimumAverage": 0.85 }
+      ]
+    }
+  ]
+}

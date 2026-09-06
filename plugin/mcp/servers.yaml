@@ -1,0 +1,5 @@
+servers:
+  - name: kindergarten-local
+    transport: stdio
+    command: node
+    args: ["./hooks/scripts/kindergarten-mcp.mjs"]

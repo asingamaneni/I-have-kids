@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Learning Worktable">
+  <rect width="64" height="64" rx="16" fill="#355d57"/>
+  <path d="M13 19.5c7.2 0 13.4 2.1 19 6.4 5.6-4.3 11.8-6.4 19-6.4v25.8c-7.2 0-13.4 1.7-19 5.2-5.6-3.5-11.8-5.2-19-5.2V19.5Z" fill="#f7f4ec"/>
+  <path d="M32 26v24.5" stroke="#b9cbc6" stroke-width="2"/>
+  <circle cx="20" cy="36" r="3.5" fill="#e6b85c"/>
+  <rect x="26" y="31" width="7" height="7" rx="2" fill="#6f948c"/>
+  <path d="M39 37.5h8M43 33.5v8" stroke="#355d57" stroke-width="3" stroke-linecap="round"/>
+</svg>
