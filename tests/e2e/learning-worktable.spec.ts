@@ -59,12 +59,14 @@ test("adult can introduce a locked concept with materials without recording mast
   await subtraction.getByRole("button", { name: "Introduce with objects" }).click();
   await expect(subtraction.getByText("available", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(subtraction.getByText(/without marking prerequisites mastered/)).toBeVisible();
-  await page.goto("/child/student-demo-ava");
-  const introduced = page.getByRole("link", { name: /Picture subtraction within 10/ });
+  const childPage = await page.context().newPage();
+  await childPage.goto("/child/student-demo-ava");
+  const introduced = childPage.getByRole("link", { name: /Picture subtraction within 10/ });
   await expect(introduced).toHaveCount(1);
   await introduced.click();
-  await expect(page.getByText("Meet the idea with real materials")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue to picture practice" })).toBeVisible();
+  await expect(childPage.getByText("Learn with real objects")).toBeVisible();
+  await expect(childPage.getByRole("button", { name: "Next: try the picture page" })).toBeVisible();
+  await childPage.close();
 });
 
 test("child routes never serialize answer contracts or hidden item answers", async ({ page, request }) => {

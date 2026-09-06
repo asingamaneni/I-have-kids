@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   ActivitySpecSchema,
   EvaluationSchema,
@@ -48,6 +48,7 @@ export interface LocalServiceOptions {
   databasePath?: string;
   artifactsDir?: string;
   clock?: () => string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface RecommendationRequestOptions {
@@ -62,6 +63,7 @@ export interface DemoStatus {
   projectRoot: string;
   databasePath: string;
   artifactsDir: string;
+  dataLocation: "explicit" | "workspace" | "legacy-web";
   students: number;
   activities: number;
   submissions: number;
@@ -233,15 +235,33 @@ function dbCounts(db: SqliteDatabase): { students: number; activities: number; s
   return { students: count("students"), activities: count("activities"), submissions: count("submissions"), evaluations: count("evaluations"), progress_events: count("progress_events") };
 }
 
+function findWorkspaceRoot(cwd: string): string {
+  let current = resolve(cwd);
+  while (true) {
+    if (existsSync(join(current, "pnpm-workspace.yaml"))) return current;
+    const parent = dirname(current);
+    if (parent === current) return resolve(cwd);
+    current = parent;
+  }
+}
+
 export function resolveProjectRoot(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
-  return resolve(env.KINDERGARTEN_PROJECT_ROOT ?? env.CLAUDE_PROJECT_DIR ?? cwd);
+  const configured = env.KINDERGARTEN_PROJECT_ROOT ?? env.CLAUDE_PROJECT_DIR;
+  return configured ? resolve(configured) : findWorkspaceRoot(cwd);
 }
 
 export function createLocalService(options: LocalServiceOptions = {}): LocalService {
-  const root = resolve(options.projectRoot ?? resolveProjectRoot());
-  const databasePath = resolve(options.databasePath ?? envPath("KINDERGARTEN_DB_PATH", "LEARNING_WORKTABLE_DB", root, ".data/learning-worktable.db"));
-  const artifactsDir = resolve(options.artifactsDir ?? envPath("KINDERGARTEN_ARTIFACTS_DIR", "LEARNING_WORKTABLE_ARTIFACTS", root, ".data/artifacts"));
-  mkdirSync(resolve(databasePath, ".."), { recursive: true });
+  const env = options.env ?? process.env;
+  const root = resolve(options.projectRoot ?? resolveProjectRoot(env));
+  const explicitDatabasePath = options.databasePath ?? env.KINDERGARTEN_DB_PATH ?? env.LEARNING_WORKTABLE_DB;
+  const explicitArtifactsDir = options.artifactsDir ?? env.KINDERGARTEN_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS;
+  const legacyDatabasePath = join(root, "apps/web/.data/learning-worktable.db");
+  const useLegacyWebData = !explicitDatabasePath && existsSync(legacyDatabasePath);
+  const resolveDataPath = (value: string): string => isAbsolute(value) ? resolve(value) : resolve(root, value);
+  const databasePath = resolveDataPath(explicitDatabasePath ?? (useLegacyWebData ? "apps/web/.data/learning-worktable.db" : ".data/learning-worktable.db"));
+  const artifactsDir = resolveDataPath(explicitArtifactsDir ?? (useLegacyWebData ? "apps/web/.data/artifacts" : ".data/artifacts"));
+  const dataLocation: DemoStatus["dataLocation"] = explicitDatabasePath || explicitArtifactsDir ? "explicit" : useLegacyWebData ? "legacy-web" : "workspace";
+  mkdirSync(dirname(databasePath), { recursive: true });
   const db = openDatabase({ filename: databasePath });
   migrateDatabase(db);
   const clock = options.clock ?? (() => new Date().toISOString());
@@ -265,7 +285,7 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     async initializeDemo(now) { return seedDemo({ databasePath, artifactsDir, now: now ?? clock() }); },
     demoStatus() {
       const counts = dbCounts(db);
-      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
+      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, dataLocation, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
     },
     listStudents: () => repo.listStudents().map(rowStudent),
     createStudent(input) {
@@ -714,9 +734,6 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
   return service;
 }
 
-function envPath(primary: string, secondary: string, root: string, fallback: string): string {
-  return process.env[primary] ?? process.env[secondary] ?? resolve(root, fallback);
-}
 function boundedInt(value: number, min: number, max: number): number { if (!Number.isInteger(value) || value < min || value > max) throw new Error(`value must be an integer between ${min} and ${max}`); return value; }
 function esc(value: unknown): string { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[char] ?? char); }
 function semanticSvgShape(shape: Record<string, unknown>, index: number, width: number, height: number): string {

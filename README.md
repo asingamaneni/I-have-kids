@@ -97,12 +97,20 @@ Demo routes:
 | `LEARNING_WORKTABLE_ARTIFACTS` | Immutable activity, submission, evaluation, and report bytes | `.data/artifacts/` |
 | `LEARNING_ADULT_PIN` | Optional local adult-area PIN | unset |
 
-Both data locations are gitignored. To keep separate households or test environments isolated, start the app with explicit paths:
+The web app and the Claude Code plugin resolve these relative paths from the pnpm workspace root, not from the process working directory. A child created in the browser is therefore available to Claude Code from the same checkout. Existing checkouts that already contain `apps/web/.data/learning-worktable.db` continue using that legacy database and its artifact directory automatically, unless explicit paths are configured.
+
+Both data locations are gitignored. To keep separate households or test environments isolated, start the app and Claude Code with the same explicit paths:
 
 ```sh
+# Terminal 1: web app
 LEARNING_WORKTABLE_DB="$HOME/.learning-worktable/family.db" \
 LEARNING_WORKTABLE_ARTIFACTS="$HOME/.learning-worktable/artifacts" \
 pnpm dev
+
+# Terminal 2: Claude Code with the same local data
+LEARNING_WORKTABLE_DB="$HOME/.learning-worktable/family.db" \
+LEARNING_WORKTABLE_ARTIFACTS="$HOME/.learning-worktable/artifacts" \
+claude --plugin-dir "$PWD/dist/plugin/claude"
 ```
 
 Back up both the SQLite file and artifact directory together so report and worksheet lineage remains complete.

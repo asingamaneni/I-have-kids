@@ -1,8 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { createLocalService } from "../src/service.js";
+import { createLocalService, resolveProjectRoot } from "../src/service.js";
 
 async function withService(test: (service: ReturnType<typeof createLocalService>) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kindergarten-mcp-"));
@@ -11,6 +11,48 @@ async function withService(test: (service: ReturnType<typeof createLocalService>
 }
 
 describe("local MCP service", () => {
+  it("shares one workspace database between the web app and Claude Code", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kindergarten-shared-data-"));
+    try {
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+      const legacyDatabase = join(root, "apps/web/.data/learning-worktable.db");
+      const legacyArtifacts = join(root, "apps/web/.data/artifacts");
+      const webService = createLocalService({ projectRoot: root, databasePath: legacyDatabase, artifactsDir: legacyArtifacts, env: {} });
+      webService.createStudent({ id: "shared-student", displayName: "Shared Student" });
+      webService.close();
+      expect(resolveProjectRoot({}, join(root, "apps/web"))).toBe(root);
+      const claudeService = createLocalService({ projectRoot: root, env: {} });
+      expect(claudeService.demoStatus()).toMatchObject({ dataLocation: "legacy-web", databasePath: legacyDatabase, artifactsDir: legacyArtifacts });
+      expect(claudeService.listStudents()).toEqual([expect.objectContaining({ id: "shared-student" })]);
+      claudeService.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("uses the workspace data directory for both new web and Claude processes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kindergarten-workspace-data-"));
+    try {
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+      const webRoot = resolveProjectRoot({}, join(root, "apps/web"));
+      const webService = createLocalService({ projectRoot: webRoot, env: {} });
+      webService.createStudent({ id: "workspace-student", displayName: "Workspace Student" });
+      expect(webService.demoStatus()).toMatchObject({ dataLocation: "workspace", databasePath: join(root, ".data/learning-worktable.db"), artifactsDir: join(root, ".data/artifacts") });
+      webService.close();
+
+      const claudeService = createLocalService({ projectRoot: root, env: {} });
+      expect(claudeService.listStudents()).toEqual([expect.objectContaining({ id: "workspace-student" })]);
+      claudeService.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("resolves configured relative data paths from the workspace root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kindergarten-explicit-data-"));
+    try {
+      const service = createLocalService({ projectRoot: root, databasePath: "family/learning.db", artifactsDir: "family/artifacts", env: {} });
+      expect(service.demoStatus()).toMatchObject({ dataLocation: "explicit", databasePath: join(root, "family/learning.db"), artifactsDir: join(root, "family/artifacts") });
+      service.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("uses adult-reported capabilities to choose diagnostics without recording mastery", async () => {
     await withService(async (service) => {
       const student = service.createStudent({ id: "student-baseline", displayName: "Baseline Learner", reportedCapabilities: ["math.adds-with-symbols"], baselineNotes: "Builds number stories with blocks.", baselineStatus: "diagnostic-in-progress" });
