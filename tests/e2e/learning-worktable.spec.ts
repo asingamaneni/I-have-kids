@@ -41,8 +41,10 @@ test("practice shelf can be organized by subject and concept", async ({ page }) 
 test("locked concepts stay off the child shelf but adults can open a concrete introduction", async ({ page }) => {
   await page.goto("/child/student-demo-ava");
   await expect(page.getByRole("link", { name: /Picture subtraction within 10/ })).toHaveCount(0);
-  await page.goto("/child/student-demo-ava/activity/activity-subtraction-01");
-  await expect(page.getByRole("heading", { name: "That page is not on this shelf." })).toBeVisible();
+  const blockedPage = await page.context().newPage();
+  await blockedPage.goto("/child/student-demo-ava/activity/activity-subtraction-01");
+  await expect(blockedPage.getByRole("heading", { name: "That page is not on this shelf." })).toBeVisible();
+  await blockedPage.close();
   const adultPage = await page.context().newPage();
   await adultPage.goto("/adult/student-demo-ava/path");
   const subtraction = adultPage.locator('[data-slot="card"]').filter({ has: adultPage.getByText("Subtraction within 10", { exact: true }) });

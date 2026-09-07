@@ -15,7 +15,7 @@ The application never calls the Anthropic API and needs no model credentials. Cl
 - A child-specific concept path that moves from concrete materials to pictures and symbols, with deterministic scoring, controlled difficulty steps, and spaced reviews.
 - Append-only progress, recommendation, evaluation, override, report, and artifact lineage records.
 - Adult dashboard, capability path controls, worksheet/response archive, correct-answer review, progress/history/review/report views, and optional local PIN protection.
-- Canonical Omniplug source compiling to Claude Code skills, commands, agents, hooks, guidance, and MCP configuration.
+- Canonical Omniplug source compiling reusable capabilities and manual `/kindergarten-*` entry points as Claude Code skills, alongside agents, hooks, guidance, and MCP configuration.
 
 ## Architecture
 
@@ -170,24 +170,34 @@ It also stores an English activity/evaluation, recommendation evidence, report s
 
 ## Build and use the Omniplug plugin
 
-The project pins Omniplug to commit `c0d7e55729c91f9d618380835ec356f312dcb1ef`.
+The project pins Omniplug to commit `1da68b18cfbf74d7cdbc0ebae9416f06a8654676`.
 
 ```sh
 pnpm plugin:validate
 pnpm plugin:build
 ```
 
-The Claude target is written to `dist/plugin/claude`. Preview a project-scoped installation without changing a project:
+The Claude target is written to `dist/plugin/claude`. Omniplug keeps the portable entry-point sources under `plugin/commands/`, but this plugin opts into Claude skill emission: each `/kindergarten-*` entry point is generated under `skills/<name>/SKILL.md` as a manual, user-invocable skill. These entry skills are not selected automatically by the model. The existing 13 reusable capability skills remain available for skill-to-skill and model-directed use.
+
+`pnpm plugin:build` clears only the generated Claude target before rebuilding and verifies that all 10 entry skills and 13 reusable skills are present without a legacy generated `commands/` directory.
+
+Preview a project-scoped installation without changing a project:
 
 ```sh
-go run github.com/asingamaneni/omniplug/cmd/omniplug@c0d7e55729c91f9d618380835ec356f312dcb1ef \
+go run github.com/asingamaneni/omniplug/cmd/omniplug@1da68b18cfbf74d7cdbc0ebae9416f06a8654676 \
   install -s plugin --scope project --project-dir /path/to/project --target claude --dry-run
+```
+
+If this checkout was installed with Learning Worktable plugin version 0.1.x, remove its old plugin-owned command output once before reinstalling. Omniplug installation is additive and does not remove paths that disappear from a newer bundle. Delete only this plugin's directory—not a shared `.claude/commands` directory:
+
+```sh
+rm -rf .claude/plugins/kindergarten-learning/commands
 ```
 
 Remove `--dry-run` when ready to install into the current checkout:
 
 ```sh
-go run github.com/asingamaneni/omniplug/cmd/omniplug@c0d7e55729c91f9d618380835ec356f312dcb1ef \
+go run github.com/asingamaneni/omniplug/cmd/omniplug@1da68b18cfbf74d7cdbc0ebae9416f06a8654676 \
   install -s plugin --scope project --project-dir "$PWD" --target claude
 claude
 ```
@@ -200,7 +210,7 @@ This integration runs in **Claude Code**, not directly in the Claude.ai website 
 
 ### Choose an installation mode
 
-The project-scoped Omniplug installation above exposes the flat command names documented in this repository, such as `/kindergarten-start`.
+The project-scoped Omniplug installation above exposes the flat user-invocable skill names documented in this repository, such as `/kindergarten-start`.
 
 For a temporary session without installing generated files into the project, launch the compiled target directly:
 
@@ -208,7 +218,7 @@ For a temporary session without installing generated files into the project, lau
 claude --plugin-dir "$PWD/dist/plugin/claude"
 ```
 
-Native plugin-directory commands are normally namespaced, for example `/kindergarten-learning:kindergarten-start`. Run `/help` after launch and use the exact names Claude Code displays.
+Native plugin-directory skills are normally namespaced, for example `/kindergarten-learning:kindergarten-start`. Run `/help` after launch and use the exact names Claude Code displays.
 
 ### Start the application and Claude
 
@@ -242,11 +252,11 @@ With `--plugin-dir`:
 /kindergarten-learning:kindergarten-start <learner-id-or-name>
 ```
 
-A learner created at `/setup` has an ID in the resulting child URL. The start command can also list local learners and load the selected learner's reported starting context, confirmed evidence, available concepts, representation stage, due reviews, and recent work.
+A learner created at `/setup` has an ID in the resulting child URL. The start skill can also list local learners and load the selected learner's reported starting context, confirmed evidence, available concepts, representation stage, due reviews, and recent work.
 
 ### Generate and store new material
 
-Start the learner first so subsequent commands have the correct local context. Examples below use the flat project-scoped command names; add the `kindergarten-learning:` namespace when using `--plugin-dir`.
+Start the learner first so subsequent entry skills have the correct local context. Examples below use the flat project-scoped skill names; add the `kindergarten-learning:` namespace when using `--plugin-dir`.
 
 Create focused practice:
 
@@ -308,7 +318,7 @@ For an existing stored submission:
 /kindergarten-check-work <activity-id> <submission-id>
 ```
 
-Do not pass a new local photo path to this command in the current release; upload the photo through the web interface first so it receives a stored submission ID and immutable lineage.
+Do not pass a new local photo path to this skill in the current release; upload the photo through the web interface first so it receives a stored submission ID and immutable lineage.
 
 Inspect confirmed progress:
 
@@ -334,9 +344,9 @@ Reports can also be created and opened at:
 http://127.0.0.1:3000/adult/<learner-id>/reports
 ```
 
-### Parent command reference
+### Parent skill reference
 
-| Purpose | Project-scoped command |
+| Purpose | Project-scoped skill |
 |---|---|
 | Start or resume | `/kindergarten-start` |
 | Generate structured practice | `/kindergarten-create-practice` |
@@ -347,7 +357,7 @@ http://127.0.0.1:3000/adult/<learner-id>/reports
 | Create an adult report | `/kindergarten-report` |
 | Run repository verification | `/kindergarten-verify` |
 
-For `--plugin-dir`, prefix these names with `kindergarten-learning:`, and use `/help` as the authoritative command list.
+For `--plugin-dir`, prefix these skill names with `kindergarten-learning:`, and use `/help` as the authoritative list.
 
 ### Authentication and data boundary
 
@@ -365,8 +375,8 @@ The repository currently contains canonical Omniplug source and a generated loca
 
 The canonical plugin provides:
 
-- 13 focused skills, including practice generation, visual activities, work checking, progress, recommendations, reports, and curriculum authoring.
-- 10 `/kindergarten-*` commands.
+- 13 reusable capability skills, including practice generation, visual activities, work checking, progress, recommendations, reports, and curriculum authoring.
+- 10 manual, user-invocable `/kindergarten-*` entry skills generated from portable canonical command sources.
 - Read-oriented curriculum, assessment, and child-experience agents.
 - Safe session/verification hooks.
 - A bundled local stdio MCP server that never calls the network or requests credentials.
