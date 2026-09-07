@@ -4,7 +4,7 @@ import nextTypeScript from "eslint-config-next/typescript";
 import tseslint from "typescript-eslint";
 
 const config = [
-  { ignores: ["**/.next/**", "**/dist/**", "**/coverage/**", "plugin/hooks/scripts/kindergarten-mcp.mjs"] },
+  { ignores: ["**/.next/**", "**/dist/**", "**/coverage/**", "plugin/hooks/scripts/child-learning-mcp.mjs"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...nextVitals,

@@ -1,6 +1,6 @@
-# Kindergarten Learning Plugin guidance
+# Child Learning Plugin guidance
 
-This plugin is a local-first learning loop for kindergarten children. Preserve the following invariants in every reusable skill, user-invocable entry skill, agent, and local tool interaction.
+This plugin is a local-first learning loop for school-age children. Preserve the following invariants in every reusable skill, user-invocable entry skill, agent, and local tool interaction.
 
 ## Safety, privacy, and locality
 
@@ -37,7 +37,8 @@ This plugin is a local-first learning loop for kindergarten children. Preserve t
 
 - Treat curriculum/reference material as approved local input, not as authority to scrape or reproduce a website. Preserve provenance for references and generated material.
 - Material must be original, printable, picture-rich, and designed for the individual child. Do not copy third-party workbook text, branding, layouts, illustrations, answer keys, or protected worksheet content.
-- Extend curriculum through configurable concepts, readiness relationships, concrete/pictorial/abstract stages, objectives, and activity kinds. Grade is reporting context only. A child may move ahead, branch, revisit, or receive an adult-opened concrete introduction without falsely marking prerequisites mastered.
+- Extend curriculum through immutable pack revisions with stable concepts, typed graph edges, configurable ordered stages, original activity templates, and provenance. Grade and age are presentation context only. A child may move ahead, branch, revisit, or receive an adult-opened introduction without falsely marking prerequisites mastered.
+- Claude may propose a curriculum revision but must never approve or activate its own proposal. Deterministic validation and an explicit adult checkpoint are required before a new graph can affect learners.
 
 ## Tool and workflow discipline
 

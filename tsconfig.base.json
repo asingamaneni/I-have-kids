@@ -17,12 +17,12 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@kindergarten/contracts": ["packages/contracts/src/index.ts"],
-      "@kindergarten/domain": ["packages/domain/src/index.ts"],
-      "@kindergarten/database": ["packages/database/src/index.ts"],
-      "@kindergarten/storage": ["packages/storage/src/index.ts"],
-      "@kindergarten/rendering": ["packages/rendering/src/index.ts"],
-      "@kindergarten/demo": ["packages/demo/src/index.ts"]
+      "@child-learning/contracts": ["packages/contracts/src/index.ts"],
+      "@child-learning/domain": ["packages/domain/src/index.ts"],
+      "@child-learning/database": ["packages/database/src/index.ts"],
+      "@child-learning/storage": ["packages/storage/src/index.ts"],
+      "@child-learning/rendering": ["packages/rendering/src/index.ts"],
+      "@child-learning/demo": ["packages/demo/src/index.ts"]
     }
   }
 }

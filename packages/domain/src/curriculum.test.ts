@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import math from "../../../curriculum/math.json";
-import { CurriculumDefinitionSchema, type LearningDirective, type ProgressEvent, type StudentConceptState } from "@kindergarten/contracts";
+import { CurriculumDefinitionSchema, type LearningDirective, type ProgressEvent, type StudentConceptState } from "@child-learning/contracts";
 import { DEFAULT_CURRICULUM, deriveConceptAvailability, filterAvailableActivities, filterReadyActivities, generateAdditionWithinTen, validateCurriculumRegistry } from "./index.js";
 
 const at = "2026-01-01T00:00:00.000Z";
@@ -24,6 +24,12 @@ describe("curriculum readiness", () => {
     const steppedState: StudentConceptState = { studentId: "s", conceptId: "math.counting-to-10", step: 2, status: "learning", recentScores: [0.7], updatedAt: at };
     expect(filterReadyActivities([activity], definition, [steppedState])).toHaveLength(0);
     expect(filterReadyActivities([activity], definition, [{ ...steppedState, status: "secure" }])).toHaveLength(1);
+  });
+
+  it("requires evidence for every configured stage even when an older projection was secure", () => {
+    const priorState: StudentConceptState = { studentId: "s", conceptId: "math.addition-within-10", step: 2, status: "secure", recentScores: [1], updatedAt: at };
+    const path = deriveConceptAvailability({ states: [priorState], events: [observation("add-concrete", "math.addition-within-10", "concrete")], now: at });
+    expect(path.find((concept) => concept.conceptId === "math.addition-within-10")).toMatchObject({ status: "active", currentStage: "pictorial" });
   });
 
   it("moves from concrete to pictorial to abstract and then opens subtraction", () => {

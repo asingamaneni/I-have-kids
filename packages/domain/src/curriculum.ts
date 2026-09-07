@@ -13,9 +13,7 @@ import {
   type ProgressEvent,
   type RepresentationStage,
   type StudentConceptState,
-} from "@kindergarten/contracts";
-
-const stageOrder: readonly RepresentationStage[] = ["concrete", "pictorial", "abstract"];
+} from "@child-learning/contracts";
 
 export const DEFAULT_CURRICULUM: readonly CurriculumDefinition[] = [mathJson, englishJson, reasoningJson, scienceJson].map((definition) => CurriculumDefinitionSchema.parse(definition));
 
@@ -25,8 +23,8 @@ export function validateCurriculumRegistry(definitions: readonly CurriculumDefin
     for (const concept of definition.concepts) {
       if (concept.subject !== definition.subject) throw new Error(`${concept.id} subject does not match its curriculum`);
       if (concepts.has(concept.id)) throw new Error(`duplicate curriculum concept: ${concept.id}`);
-      const ranks = concept.stages.map((stage) => stageOrder.indexOf(stage.stage));
-      if (ranks.some((rank, index) => index > 0 && rank <= ranks[index - 1]!)) throw new Error(`${concept.id} stages must move from concrete toward abstract without duplicates`);
+      const stages = concept.stages.map((stage) => stage.stage);
+      if (new Set(stages).size !== stages.length) throw new Error(`${concept.id} stages must be unique and remain in configured order`);
       concepts.set(concept.id, concept);
     }
   }
@@ -51,7 +49,7 @@ export function validateCurriculumRegistry(definitions: readonly CurriculumDefin
 export const DEFAULT_CONCEPTS = validateCurriculumRegistry(DEFAULT_CURRICULUM);
 
 export function representationStageFromEvent(event: ProgressEvent): RepresentationStage | undefined {
-  const match = event.comparabilityKey?.match(/(?:^|\|)stage:(concrete|pictorial|abstract)(?:\||$)/);
+  const match = event.comparabilityKey?.match(/(?:^|\|)stage:([^|]+)(?:\||$)/);
   return match?.[1] as RepresentationStage | undefined;
 }
 
@@ -71,9 +69,7 @@ function completesStage(concept: CurriculumConcept, stage: RepresentationStage, 
   return recent.length >= definition.minimumConfirmed && recent.reduce((sum, event) => sum + (event.score ?? 0), 0) / recent.length >= definition.minimumAverage;
 }
 
-export function conceptIsSecure(concept: CurriculumConcept, states: readonly StudentConceptState[], events: readonly ProgressEvent[]): boolean {
-  const state = states.find((candidate) => candidate.conceptId === concept.id);
-  if (state?.status === "secure") return true;
+export function conceptIsSecure(concept: CurriculumConcept, _states: readonly StudentConceptState[], events: readonly ProgressEvent[]): boolean {
   return concept.stages.every((stage) => completesStage(concept, stage.stage, events));
 }
 
@@ -101,11 +97,11 @@ export function deriveConceptAvailability(input: { definitions?: readonly Curric
     if (directive?.action === "defer") { status = "deferred"; reason = `An adult deferred this concept: ${directive.reason}`; }
     else if (secure.has(concept.id)) { status = "secure"; reason = "The configured learning stages have enough confirmed evidence."; }
     else if (ownEvidence) { status = "active"; reason = `Learning is active at the ${currentStage} stage based on the child's own evidence.`; }
-    else if (assessingReportedCapability) { status = "available"; reason = `An adult reported this as a current capability. Start with a ${directive.requestedStage ?? "pictorial"} diagnostic; the statement itself does not count as mastery.`; }
+    else if (assessingReportedCapability) { status = "available"; reason = `An adult reported this as a current capability. Start with a ${directive.requestedStage ?? currentStage} diagnostic; the statement itself does not count as mastery.`; }
     else if (unmetPrerequisiteIds.length === 0) { status = "available"; reason = `The ${currentStage} stage is ready to introduce.`; }
-    else if (introducedEarly) { status = "available"; reason = `An adult opened an early ${directive.requestedStage ?? "concrete"} introduction without marking prerequisites mastered.`; }
-    else { status = "locked"; reason = `Build readiness through ${unmetPrerequisiteIds.join(", ")} or open a concrete introduction with an adult.`; }
-    return ConceptAvailabilitySchema.parse({ conceptId: concept.id, subject: concept.subject, title: concept.title, status, currentStage: introducedEarly ? directive?.requestedStage ?? "concrete" : currentStage, unmetPrerequisiteIds, reason, introducedEarly, priority: directive?.action === "assess" ? 5 : directive?.action === "prioritize" ? directive.priority ?? 3 : 0 });
+    else if (introducedEarly) { status = "available"; reason = `An adult opened an early ${directive.requestedStage ?? concept.stages[0]!.stage} introduction without marking prerequisites mastered.`; }
+    else { status = "locked"; reason = `Build readiness through ${unmetPrerequisiteIds.join(", ")} or let an adult open an early introduction.`; }
+    return ConceptAvailabilitySchema.parse({ conceptId: concept.id, subject: concept.subject, title: concept.title, status, currentStage: introducedEarly ? directive?.requestedStage ?? concept.stages[0]!.stage : currentStage, stageOrder: concept.stages.map((stage) => stage.stage), branchKind: concept.branchKind, unmetPrerequisiteIds, reason, introducedEarly, priority: directive?.action === "assess" ? 5 : directive?.action === "prioritize" ? directive.priority ?? 3 : 0 });
   });
 }
 
@@ -114,7 +110,9 @@ export function filterAvailableActivities(activities: readonly ActivitySpec[], a
   return activities.filter((activity) => {
     const entry = byConcept.get(activity.conceptId);
     if (!entry || entry.status === "locked" || entry.status === "deferred") return false;
-    const activityStage = activity.representationStage ?? "pictorial";
-    return stageOrder.indexOf(activityStage) <= stageOrder.indexOf(entry.currentStage);
+    const activityStage = activity.representationStage ?? entry.stageOrder[0]!;
+    const activityIndex = entry.stageOrder.indexOf(activityStage);
+    const currentIndex = entry.stageOrder.indexOf(entry.currentStage);
+    return activityIndex >= 0 && currentIndex >= 0 && activityIndex <= currentIndex;
   });
 }

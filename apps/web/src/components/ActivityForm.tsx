@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, PackageOpen } from "lucide-react";
-import type { WorksheetActivity } from "@kindergarten/rendering";
-import { WorksheetRenderer } from "@kindergarten/rendering";
+import type { WorksheetActivity } from "@child-learning/rendering";
+import { WorksheetRenderer } from "@child-learning/rendering";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 

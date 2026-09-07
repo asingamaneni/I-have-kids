@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { ReportSnapshotSchema } from "@kindergarten/contracts";
+import { ReportSnapshotSchema } from "@child-learning/contracts";
 import { getReport, getStudent } from "@/lib/data";
 
 function conceptLabel(conceptId: string): string {

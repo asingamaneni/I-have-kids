@@ -1,5 +1,5 @@
 ---
-description: Run the read-only or explicitly requested kindergarten demonstration narrative.
+description: Run the read-only or explicitly requested child learning demonstration narrative.
 argumentHint: "[student-id]"
 model: inherit
 ---

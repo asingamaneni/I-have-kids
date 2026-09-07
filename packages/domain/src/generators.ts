@@ -1,4 +1,4 @@
-import type { ActivityItem, ActivitySpec, RepresentationStage } from "@kindergarten/contracts";
+import type { ActivityItem, ActivitySpec, RepresentationStage } from "@child-learning/contracts";
 
 type EqualGroupsFairSharingItem = Extract<ActivityItem, { kind: "equal-groups-fair-sharing" }>;
 type EquationItem = Extract<ActivityItem, { kind: "equation" }>;
@@ -8,7 +8,7 @@ type PhonicsPictureWordItem = Extract<ActivityItem, { kind: "phonics-picture-wor
 type ReadingComprehensionItem = Extract<ActivityItem, { kind: "reading-comprehension" }>;
 type ScienceObservationItem = Extract<ActivityItem, { kind: "science-observation" }>;
 type SequencingReasoningItem = Extract<ActivityItem, { kind: "sequencing-reasoning" }>;
-import { ActivitySpecSchema } from "@kindergarten/contracts";
+import { ActivitySpecSchema } from "@child-learning/contracts";
 import { comparabilityKey } from "./progression.js";
 import { DEFAULT_CONCEPTS } from "./curriculum.js";
 
@@ -31,7 +31,7 @@ function boundedCount(value: number | undefined, max: number, fallback: number):
 function stableIdSegment(value: string): string { return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unassigned"; }
 function positiveModulo(value: number, modulus: number): number { return ((value % modulus) + modulus) % modulus; }
 
-export type GeneratorOptions = { seed: number; studentId?: string; now?: Date | string; itemCount?: number; representationStage?: RepresentationStage };
+export type GeneratorOptions = { seed: number; studentId?: string; now?: Date | string; itemCount?: number; representationStage?: RepresentationStage; difficultyLevel?: number };
 function presentationFor(conceptId: string, title: string): NonNullable<ActivitySpec["presentation"]> {
   const operation = conceptId.includes("subtraction") ? "take some away and count how many are left" : conceptId.includes("addition") ? "make two groups, put them together, and count all" : conceptId.includes("fair-sharing") ? "give one object to each person until all are shared" : conceptId.includes("equal-groups") ? "make groups with the same number in each group" : "touch, move, sort, or name each object";
   return { materials: ["small counters or familiar household objects", "a clear work mat or tray"], childInvitation: `Use real objects to practice ${title.toLocaleLowerCase()}.`, steps: ["Put the objects on your mat.", `Use the objects to ${operation}.`, "Try it again. Tell what changed."], adultGuide: "Demonstrate slowly, use few words, then pause so the child can act independently. Do not correct during the first exploration unless safety or frustration requires help.", observationPrompt: "What did the child choose to do independently, and what representation should come next?" };
@@ -44,6 +44,7 @@ function completeActivity(options: GeneratorOptions, input: Omit<ActivitySpec, "
   const evidencePurpose = curriculumStage?.evidencePurpose ?? (representationStage === "concrete" ? "exploration" : representationStage === "abstract" ? "mastery" : "formative");
   const spec = ActivitySpecSchema.parse({
     ...activity,
+    difficultyLevel: options.difficultyLevel ?? activity.difficultyLevel,
     id: `activity-${generatorName}-${representationStage}-${stableIdSegment(options.studentId ?? "unassigned")}-${options.seed}-${options.itemCount ?? "default"}`,
     schemaVersion: "1.0",
     studentId: options.studentId ?? "unassigned",

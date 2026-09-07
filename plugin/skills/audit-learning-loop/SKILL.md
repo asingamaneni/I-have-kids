@@ -1,7 +1,7 @@
 ---
 name: audit-learning-loop
 description: "Audit the generate-to-review learning loop for contract, safety, evidence, and lineage violations."
-whenToUse: When maintainers want a read-only audit of the kindergarten learning loop.
+whenToUse: When maintainers want a read-only audit of the child learning loop.
 argumentHint: "[student-id-or-all] [time-window]"
 model: inherit
 effort: medium

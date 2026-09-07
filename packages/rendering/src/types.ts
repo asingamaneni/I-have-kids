@@ -1,4 +1,4 @@
-import type { ActivitySpec, ActivityItem, ChildActivityItem, ChildActivitySpec } from "@kindergarten/contracts";
+import type { ActivitySpec, ActivityItem, ChildActivityItem, ChildActivitySpec } from "@child-learning/contracts";
 
 export type WorksheetMode = "digital" | "print";
 export type WorksheetActivity = ActivitySpec | ChildActivitySpec;
@@ -18,4 +18,4 @@ export interface WorksheetTemplateProps {
 }
 
 export type SupportedWorksheetItem = Extract<ActivityItem,
-  { kind: "picture-addition-subtraction" | "phonics-picture-word" | "number-choice" | "equation" | "handwriting-writing" | "reading-comprehension" | "sequencing-reasoning" | "science-observation" | "equal-groups-fair-sharing" }>;
+  { kind: "picture-addition-subtraction" | "phonics-picture-word" | "number-choice" | "equation" | "handwriting-writing" | "reading-comprehension" | "sequencing-reasoning" | "science-observation" | "equal-groups-fair-sharing" | "selected-response" | "numeric-response" | "short-response" | "extended-response" | "ordering" }>;

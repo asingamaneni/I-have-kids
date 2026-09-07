@@ -225,6 +225,93 @@ CREATE TRIGGER IF NOT EXISTS artifact_edges_no_update BEFORE UPDATE ON artifact_
 CREATE TRIGGER IF NOT EXISTS artifact_edges_no_delete BEFORE DELETE ON artifact_edges BEGIN SELECT RAISE(ABORT, 'artifact_edges are append-only'); END;
 `;
 
+export const MIGRATION_004 = `
+CREATE TABLE IF NOT EXISTS curriculum_revisions (
+  id TEXT PRIMARY KEY,
+  pack_id TEXT NOT NULL,
+  revision_number INTEGER NOT NULL CHECK (revision_number > 0),
+  title TEXT NOT NULL,
+  definition_json TEXT NOT NULL CHECK (json_valid(definition_json) AND json_extract(definition_json, '$.schemaVersion') = '2.0' AND json_extract(definition_json, '$.id') = id),
+  sha256 TEXT NOT NULL,
+  artifact_id TEXT REFERENCES artifacts(id),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (pack_id, revision_number),
+  UNIQUE (sha256)
+);
+
+CREATE TABLE IF NOT EXISTS curriculum_proposals (
+  id TEXT PRIMARY KEY,
+  revision_id TEXT NOT NULL REFERENCES curriculum_revisions(id),
+  proposal_json TEXT NOT NULL CHECK (json_valid(proposal_json) AND json_extract(proposal_json, '$.id') = id),
+  artifact_id TEXT REFERENCES artifacts(id),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS curriculum_decisions (
+  id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL REFERENCES curriculum_proposals(id),
+  revision_id TEXT NOT NULL REFERENCES curriculum_revisions(id),
+  decision TEXT NOT NULL CHECK (decision IN ('approved','rejected')),
+  reviewer_id TEXT NOT NULL,
+  note TEXT NOT NULL,
+  decision_json TEXT NOT NULL CHECK (json_valid(decision_json)),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS curriculum_activations (
+  id TEXT PRIMARY KEY,
+  pack_id TEXT NOT NULL,
+  revision_id TEXT NOT NULL REFERENCES curriculum_revisions(id),
+  action TEXT NOT NULL CHECK (action IN ('activate','rollback')),
+  actor_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  activation_json TEXT NOT NULL CHECK (json_valid(activation_json)),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS learner_roadmap_revisions (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL REFERENCES students(id),
+  subject TEXT NOT NULL,
+  curriculum_revision_ids_json TEXT NOT NULL CHECK (json_valid(curriculum_revision_ids_json)),
+  graph_json TEXT NOT NULL CHECK (json_valid(graph_json) AND json_extract(graph_json, '$.id') = id),
+  artifact_id TEXT REFERENCES artifacts(id),
+  source TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS roadmap_reconciliation_runs (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL REFERENCES students(id),
+  trigger_type TEXT NOT NULL,
+  trigger_id TEXT,
+  result_json TEXT NOT NULL CHECK (json_valid(result_json)),
+  created_at TEXT NOT NULL,
+  operation_key TEXT UNIQUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_curriculum_revisions_pack ON curriculum_revisions(pack_id, revision_number);
+CREATE INDEX IF NOT EXISTS idx_curriculum_activations_pack ON curriculum_activations(pack_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_curriculum_decisions_proposal ON curriculum_decisions(proposal_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_roadmap_revisions_student_subject ON learner_roadmap_revisions(student_id, subject, created_at);
+
+CREATE TRIGGER IF NOT EXISTS curriculum_revisions_no_update BEFORE UPDATE ON curriculum_revisions BEGIN SELECT RAISE(ABORT, 'curriculum_revisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_revisions_no_delete BEFORE DELETE ON curriculum_revisions BEGIN SELECT RAISE(ABORT, 'curriculum_revisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_proposals_no_update BEFORE UPDATE ON curriculum_proposals BEGIN SELECT RAISE(ABORT, 'curriculum_proposals are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_proposals_no_delete BEFORE DELETE ON curriculum_proposals BEGIN SELECT RAISE(ABORT, 'curriculum_proposals are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_decisions_no_update BEFORE UPDATE ON curriculum_decisions BEGIN SELECT RAISE(ABORT, 'curriculum_decisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_decisions_no_delete BEFORE DELETE ON curriculum_decisions BEGIN SELECT RAISE(ABORT, 'curriculum_decisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_activations_no_update BEFORE UPDATE ON curriculum_activations BEGIN SELECT RAISE(ABORT, 'curriculum_activations are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS curriculum_activations_no_delete BEFORE DELETE ON curriculum_activations BEGIN SELECT RAISE(ABORT, 'curriculum_activations are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS learner_roadmap_revisions_no_update BEFORE UPDATE ON learner_roadmap_revisions BEGIN SELECT RAISE(ABORT, 'learner_roadmap_revisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS learner_roadmap_revisions_no_delete BEFORE DELETE ON learner_roadmap_revisions BEGIN SELECT RAISE(ABORT, 'learner_roadmap_revisions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS roadmap_reconciliation_runs_no_update BEFORE UPDATE ON roadmap_reconciliation_runs BEGIN SELECT RAISE(ABORT, 'roadmap_reconciliation_runs are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS roadmap_reconciliation_runs_no_delete BEFORE DELETE ON roadmap_reconciliation_runs BEGIN SELECT RAISE(ABORT, 'roadmap_reconciliation_runs are append-only'); END;
+`;
+
 function hasColumn(db: SqliteDatabase, table: string, column: string): boolean {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((entry) => entry.name === column);
 }
@@ -269,6 +356,14 @@ export function migrateDatabase(db: SqliteDatabase): void {
       db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (3, ?)").run(new Date().toISOString());
     });
     applyEvaluationResolution();
+  }
+  const adaptiveCurriculum = db.prepare("SELECT 1 FROM schema_migrations WHERE id = 4").get();
+  if (!adaptiveCurriculum) {
+    const applyAdaptiveCurriculum = db.transaction(() => {
+      db.exec(MIGRATION_004);
+      db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (4, ?)").run(new Date().toISOString());
+    });
+    applyAdaptiveCurriculum();
   }
 }
 

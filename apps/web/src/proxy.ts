@@ -11,6 +11,7 @@ export async function proxy(request: NextRequest) {
   const current = request.cookies.get("learning-adult-access")?.value;
   if (current === await pinToken(pin)) return NextResponse.next();
   const unlock = new URL("/adult/unlock", request.url);
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Adult PIN required.", unlockUrl: unlock.pathname }, { status: 401 });
   unlock.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
   return NextResponse.redirect(unlock);
 }
@@ -21,7 +22,9 @@ export const config = {
     "/setup",
     "/print/:path*",
     "/api/activities/generate",
+    "/api/adult/students/:studentId/roadmap",
     "/api/artifacts/:path*",
+    "/api/curriculum/:path*",
     "/api/learning-directives",
     "/api/overrides",
     "/api/reports",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { LearningDirectiveRequestSchema } from "@kindergarten/contracts";
+import { LearningDirectiveRequestSchema } from "@child-learning/contracts";
 import { applyLearningDirective } from "@/lib/data";
 
 export async function POST(request: Request) {

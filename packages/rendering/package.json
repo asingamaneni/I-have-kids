@@ -1,12 +1,12 @@
 {
-  "name": "@kindergarten/rendering",
+  "name": "@child-learning/rendering",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@kindergarten/contracts": "workspace:*",
+    "@child-learning/contracts": "workspace:*",
     "playwright": "1.63.0",
     "react": "19.2.8"
   }

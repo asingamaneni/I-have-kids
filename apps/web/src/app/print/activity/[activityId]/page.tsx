@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { WorksheetRenderer } from "@kindergarten/rendering";
+import { WorksheetRenderer } from "@child-learning/rendering";
 import { PrintActions } from "@/components/PrintActions";
 import { getAdultActivity } from "@/lib/data";
 

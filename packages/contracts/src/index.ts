@@ -1,8 +1,12 @@
 import { z } from "zod";
 
 export const IdSchema = z.string().min(1);
+export const RegistryIdSchema = z.string().min(1).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/);
 export const IsoDateTimeSchema = z.string().datetime({ offset: true });
-export const SubjectSchema = z.enum(["math", "english", "reasoning", "science"]);
+export const SubjectSchema = RegistryIdSchema;
+export const RepresentationStageSchema = RegistryIdSchema;
+export type RepresentationStage = z.infer<typeof RepresentationStageSchema>;
+export const DeliveryModeSchema = RegistryIdSchema;
 export const ActivityGenerationRequestSchema = z.object({
   studentId: IdSchema.optional(),
   subject: SubjectSchema.optional(),
@@ -10,15 +14,12 @@ export const ActivityGenerationRequestSchema = z.object({
   generator: IdSchema.optional(),
   seed: z.number().int().optional(),
   itemCount: z.number().int().min(1).max(40).optional(),
-  representationStage: z.enum(["concrete", "pictorial", "abstract"]).optional(),
+  representationStage: RepresentationStageSchema.optional(),
 }).strict();
 export type ActivityGenerationRequest = z.infer<typeof ActivityGenerationRequestSchema>;
 export const EvidenceStatusSchema = z.enum(["confirmed", "unconfirmed", "ambiguous"]);
 export const EvaluatorTypeSchema = z.enum(["deterministic", "review_gated_precheck", "human", "hybrid", "claude_code_assisted"]);
 export const ActivityTypeSchema = z.enum(["introduction", "practice", "review", "assessment", "application"]);
-export const RepresentationStageSchema = z.enum(["concrete", "pictorial", "abstract"]);
-export type RepresentationStage = z.infer<typeof RepresentationStageSchema>;
-export const DeliveryModeSchema = z.enum(["hands-on", "guided-screen", "worksheet"]);
 export const EvidencePurposeSchema = z.enum(["exploration", "formative", "mastery", "review"]);
 export const HandsOnPresentationSchema = z.object({
   materials: z.array(z.string().min(1)).min(1),
@@ -38,29 +39,19 @@ export const SourceMetadataSchema = z.object({
   notes: z.string().optional(),
 }).default({ origin: "original" });
 
-export const CapabilityClaimSchema = z.enum([
-  "math.counts-to-10",
-  "math.recognizes-teen-numbers",
-  "math.adds-with-objects",
-  "math.adds-with-symbols",
-  "math.subtracts-with-objects",
-  "math.subtracts-with-symbols",
-  "english.hears-beginning-sounds",
-  "english.reads-short-text",
-  "english.writes-letters-words",
-  "reasoning.continues-patterns",
-  "reasoning.sorts-and-explains",
-  "science.observes-and-describes",
-]);
+export const CapabilityClaimSchema = RegistryIdSchema;
 export type CapabilityClaim = z.infer<typeof CapabilityClaimSchema>;
 
 export const StudentSchema = z.object({
   id: IdSchema,
   displayName: z.string().min(1),
   birthDate: z.string().date().optional(),
-  gradeBand: z.string().min(1).default("kindergarten"),
+  gradeBand: z.string().min(1).default("school-age"),
   preferredLanguage: z.string().min(2).default("en"),
   accommodations: z.array(z.string()).default([]),
+  interests: z.array(z.string().min(1)).default([]),
+  learningGoals: z.array(z.string().min(1)).default([]),
+  selectedSubjects: z.array(SubjectSchema).default([]),
   reportedCapabilities: z.array(CapabilityClaimSchema).default([]),
   baselineNotes: z.string().min(1).optional(),
   baselineStatus: z.enum(["unassessed", "diagnostic-in-progress", "established"]).default("unassessed"),
@@ -68,7 +59,7 @@ export const StudentSchema = z.object({
   updatedAt: IsoDateTimeSchema,
 });
 export type Student = z.infer<typeof StudentSchema>;
-export const StudentCreateRequestSchema = z.object({ id: IdSchema.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), currentCapabilities: z.array(CapabilityClaimSchema).max(12).optional(), baselineNotes: z.string().min(1).max(1000).optional() }).strict();
+export const StudentCreateRequestSchema = z.object({ id: IdSchema.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), interests: z.array(z.string().min(1)).max(30).optional(), learningGoals: z.array(z.string().min(1)).max(30).optional(), selectedSubjects: z.array(SubjectSchema).max(30).optional(), currentCapabilities: z.array(CapabilityClaimSchema).max(100).optional(), baselineNotes: z.string().min(1).max(2000).optional() }).strict();
 export type StudentCreateRequest = z.infer<typeof StudentCreateRequestSchema>;
 
 export const ActivityKindSchema = z.enum([
@@ -81,6 +72,11 @@ export const ActivityKindSchema = z.enum([
   "reading-comprehension",
   "sequencing-reasoning",
   "science-observation",
+  "selected-response",
+  "numeric-response",
+  "short-response",
+  "extended-response",
+  "ordering",
 ]);
 
 const ItemBaseSchema = z.object({
@@ -152,6 +148,37 @@ const ScienceObservationItemSchema = ItemBaseSchema.extend({
   expectedObservations: z.array(z.string().min(1)).min(1),
   safetyNote: z.string().min(1).optional(),
 });
+const SelectedResponseItemSchema = ItemBaseSchema.extend({
+  kind: z.literal("selected-response"),
+  choices: z.array(z.string().min(1)).min(2),
+  correctChoice: z.string().min(1),
+  content: z.string().min(1).optional(),
+});
+const NumericResponseItemSchema = ItemBaseSchema.extend({
+  kind: z.literal("numeric-response"),
+  expected: z.number(),
+  tolerance: z.number().min(0).default(0),
+  unit: z.string().min(1).optional(),
+  content: z.string().min(1).optional(),
+});
+const ShortResponseItemSchema = ItemBaseSchema.extend({
+  kind: z.literal("short-response"),
+  expectedAnswers: z.array(z.string().min(1)).min(1),
+  normalize: z.enum(["exact", "case-insensitive", "trimmed"]).default("trimmed"),
+  content: z.string().min(1).optional(),
+});
+const ExtendedResponseItemSchema = ItemBaseSchema.extend({
+  kind: z.literal("extended-response"),
+  rubricId: IdSchema,
+  content: z.string().min(1).optional(),
+  minimumLines: z.number().int().min(1).max(20).default(3),
+});
+const OrderingItemSchema = ItemBaseSchema.extend({
+  kind: z.literal("ordering"),
+  options: z.array(z.string().min(1)).min(2),
+  correctOrder: z.array(z.number().int().min(0)).min(2),
+  content: z.string().min(1).optional(),
+});
 
 export const ActivityItemSchema = z.discriminatedUnion("kind", [
   PictureAdditionSubtractionItemSchema,
@@ -163,6 +190,11 @@ export const ActivityItemSchema = z.discriminatedUnion("kind", [
   ReadingComprehensionItemSchema,
   SequencingReasoningItemSchema,
   ScienceObservationItemSchema,
+  SelectedResponseItemSchema,
+  NumericResponseItemSchema,
+  ShortResponseItemSchema,
+  ExtendedResponseItemSchema,
+  OrderingItemSchema,
 ]);
 export type ActivityItem = z.infer<typeof ActivityItemSchema>;
 
@@ -185,6 +217,12 @@ export const ScoringSpecSchema = z.object({
 });
 export type ScoringSpec = z.infer<typeof ScoringSpecSchema>;
 
+export const CurriculumReferenceSchema = z.object({
+  packId: RegistryIdSchema,
+  revisionId: IdSchema,
+  nodeRevisionId: IdSchema,
+});
+
 export const ActivitySpecSchema = z.object({
   schemaVersion: z.literal("1.0"),
   id: IdSchema,
@@ -201,6 +239,7 @@ export const ActivitySpecSchema = z.object({
   evidencePurpose: EvidencePurposeSchema.optional(),
   presentation: HandsOnPresentationSchema.optional(),
   curriculumVersion: z.string().min(1).optional(),
+  curriculumRef: CurriculumReferenceSchema.optional(),
   visualSupport: VisualSupportSchema.default(true),
   instructions: z.array(z.string().min(1)).min(1).default(["Try each item."]),
   items: z.array(ActivityItemSchema).min(1).max(40),
@@ -227,6 +266,11 @@ const ChildHandwritingWritingItemSchema = HandwritingWritingItemSchema.extend({ 
 const ChildReadingComprehensionItemSchema = ReadingComprehensionItemSchema.omit({ correctAnswer: true }).extend({ metadata: ChildItemMetadataSchema });
 const ChildSequencingReasoningItemSchema = SequencingReasoningItemSchema.omit({ answer: true }).extend({ metadata: ChildItemMetadataSchema });
 const ChildScienceObservationItemSchema = ScienceObservationItemSchema.omit({ expectedObservations: true }).extend({ metadata: ChildItemMetadataSchema });
+const ChildSelectedResponseItemSchema = SelectedResponseItemSchema.omit({ correctChoice: true }).extend({ metadata: ChildItemMetadataSchema });
+const ChildNumericResponseItemSchema = NumericResponseItemSchema.omit({ expected: true, tolerance: true }).extend({ metadata: ChildItemMetadataSchema });
+const ChildShortResponseItemSchema = ShortResponseItemSchema.omit({ expectedAnswers: true, normalize: true }).extend({ metadata: ChildItemMetadataSchema });
+const ChildExtendedResponseItemSchema = ExtendedResponseItemSchema.extend({ metadata: ChildItemMetadataSchema });
+const ChildOrderingItemSchema = OrderingItemSchema.omit({ correctOrder: true }).extend({ metadata: ChildItemMetadataSchema });
 
 export const ChildActivityItemSchema = z.discriminatedUnion("kind", [
   ChildPictureAdditionSubtractionItemSchema,
@@ -238,11 +282,31 @@ export const ChildActivityItemSchema = z.discriminatedUnion("kind", [
   ChildReadingComprehensionItemSchema,
   ChildSequencingReasoningItemSchema,
   ChildScienceObservationItemSchema,
+  ChildSelectedResponseItemSchema,
+  ChildNumericResponseItemSchema,
+  ChildShortResponseItemSchema,
+  ChildExtendedResponseItemSchema,
+  ChildOrderingItemSchema,
 ]);
 export type ChildActivityItem = z.infer<typeof ChildActivityItemSchema>;
 
 const ChildHandsOnPresentationSchema = HandsOnPresentationSchema.omit({ adultGuide: true, observationPrompt: true });
-export const ChildActivitySpecSchema = ActivitySpecSchema.omit({ answerSpecs: true, items: true, presentation: true }).extend({
+export const ChildActivitySpecSchema = ActivitySpecSchema.pick({
+  schemaVersion: true,
+  id: true,
+  studentId: true,
+  subject: true,
+  conceptId: true,
+  title: true,
+  objectives: true,
+  estimatedMinutes: true,
+  activityType: true,
+  representationStage: true,
+  deliveryMode: true,
+  visualSupport: true,
+  instructions: true,
+  createdAt: true,
+}).extend({
   items: z.array(ChildActivityItemSchema).min(1).max(40),
   presentation: ChildHandsOnPresentationSchema.optional(),
 });
@@ -363,12 +427,12 @@ export type Recommendation = z.infer<typeof RecommendationSchema>;
 export const ArtifactLineageSchema = z.object({
   artifactId: IdSchema,
   parentArtifactId: IdSchema.optional(),
-  relation: z.enum(["derived-from", "generated-from", "submitted-from", "evaluated-from", "corrected-from", "exported-from", "supports"]).default("derived-from"),
-  operation: z.enum(["generated", "submitted", "evaluated", "corrected", "exported", "overridden", "reviewed"]).default("generated"),
+  relation: z.enum(["derived-from", "generated-from", "submitted-from", "evaluated-from", "corrected-from", "exported-from", "supports", "revises", "activates", "projects"]).default("derived-from"),
+  operation: z.enum(["generated", "submitted", "evaluated", "corrected", "exported", "overridden", "reviewed", "proposed", "approved", "activated", "reconciled"]).default("generated"),
   actor: z.enum(["system", "student", "caregiver", "teacher", "claude_code_assisted"]).default("system"),
   createdAt: IsoDateTimeSchema,
 });
-export const ArtifactSchema = z.object({ id: IdSchema, studentId: IdSchema, kind: z.enum(["activity", "activity-spec", "worksheet", "submission", "evaluation", "report", "report-snapshot", "asset", "override", "progress-event"]), uri: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(), lineage: z.array(ArtifactLineageSchema).min(1), createdAt: IsoDateTimeSchema });
+export const ArtifactSchema = z.object({ id: IdSchema, studentId: IdSchema, kind: z.enum(["activity", "activity-spec", "worksheet", "submission", "evaluation", "report", "report-snapshot", "asset", "override", "progress-event", "curriculum-revision", "curriculum-proposal", "roadmap-revision"]), uri: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(), lineage: z.array(ArtifactLineageSchema).min(1), createdAt: IsoDateTimeSchema });
 export type Artifact = z.infer<typeof ArtifactSchema>;
 
 export const HumanOverrideSchema = z.object({ id: IdSchema, studentId: IdSchema, conceptId: IdSchema, targetStep: z.number().int().min(0).max(10), reason: z.string().min(1), authorId: IdSchema, createdAt: IsoDateTimeSchema, expiresAt: IsoDateTimeSchema.optional() });
@@ -380,6 +444,8 @@ export const ConceptAvailabilitySchema = z.object({
   title: z.string().min(1),
   status: z.enum(["locked", "available", "active", "secure", "deferred"]),
   currentStage: RepresentationStageSchema,
+  stageOrder: z.array(RepresentationStageSchema).min(1).default(["concrete", "pictorial", "abstract"]),
+  branchKind: z.enum(["core", "extension", "review", "interest"]).default("core"),
   unmetPrerequisiteIds: z.array(IdSchema),
   reason: z.string().min(1),
   introducedEarly: z.boolean().default(false),
@@ -412,6 +478,7 @@ export const ReportSnapshotSchema = z.object({
   recommendedNextSteps: z.array(z.string()).default([]),
   worksheetSummaries: z.array(ReportWorksheetSummarySchema).default([]),
   learningPath: z.array(ConceptAvailabilitySchema).default([]),
+  roadmapRevisionIds: z.array(IdSchema).default([]),
   recommendation: RecommendationSchema.optional(),
   summary: z.string().min(1),
   artifactId: IdSchema.optional(),
@@ -420,11 +487,16 @@ export type ReportSnapshot = z.infer<typeof ReportSnapshotSchema>;
 
 export const CurriculumStageSchema = z.object({
   stage: RepresentationStageSchema,
+  title: z.string().min(1).optional(),
   deliveryMode: DeliveryModeSchema,
   evidencePurpose: EvidencePurposeSchema,
-  generator: IdSchema,
-  minimumConfirmed: z.number().int().min(1).max(10).default(1),
+  generator: RegistryIdSchema,
+  evaluator: RegistryIdSchema.default("deterministic"),
+  renderer: RegistryIdSchema.default("worksheet"),
+  activityKinds: z.array(ActivityKindSchema).default([]),
+  minimumConfirmed: z.number().int().min(1).max(20).default(1),
   minimumAverage: z.number().min(0).max(1).default(0.8),
+  difficultyParameters: z.record(z.string(), z.unknown()).default({}),
 });
 export const CurriculumConceptSchema = z.object({
   id: IdSchema,
@@ -435,12 +507,151 @@ export const CurriculumConceptSchema = z.object({
   prerequisites: z.array(IdSchema).default([]),
   readinessConceptIds: z.array(IdSchema).default([]),
   activityKinds: z.array(ActivityKindSchema).min(1),
+  branchKind: z.enum(["core", "extension", "review", "interest"]).default("core"),
+  advisoryAgeRange: z.object({ minimum: z.number().int().min(3).max(21).optional(), maximum: z.number().int().min(3).max(21).optional() }).optional(),
+  assessmentClaims: z.array(CapabilityClaimSchema).default([]),
+  templateIds: z.array(IdSchema).default([]),
   allowEarlyIntroduction: z.boolean().default(true),
-  stages: z.array(CurriculumStageSchema).min(1).default([{ stage: "pictorial", deliveryMode: "worksheet", evidencePurpose: "mastery", generator: "default", minimumConfirmed: 3, minimumAverage: 0.9 }]),
+  stages: z.array(CurriculumStageSchema).min(1).default([{ stage: "pictorial", deliveryMode: "worksheet", evidencePurpose: "mastery", generator: "default", evaluator: "deterministic", renderer: "worksheet", activityKinds: [], minimumConfirmed: 3, minimumAverage: 0.9, difficultyParameters: {} }]),
 });
 export const CurriculumDefinitionSchema = z.object({ schemaVersion: z.literal("1.0"), subject: SubjectSchema, title: z.string().min(1), concepts: z.array(CurriculumConceptSchema).min(1) });
 export type CurriculumDefinition = z.infer<typeof CurriculumDefinitionSchema>;
 export type CurriculumConcept = z.infer<typeof CurriculumConceptSchema>;
+
+export const CurriculumSubjectSchema = z.object({
+  id: SubjectSchema,
+  title: z.string().min(1),
+  description: z.string().min(1),
+  icon: z.string().min(1).optional(),
+});
+export const CurriculumEdgeSchema = z.object({
+  id: IdSchema,
+  from: IdSchema,
+  to: IdSchema,
+  type: z.enum(["requires", "readiness", "extends", "supports", "cross-subject"]),
+  label: z.string().min(1).optional(),
+});
+export const CurriculumActivityTemplateSchema = z.object({
+  id: IdSchema,
+  conceptId: IdSchema,
+  stage: RepresentationStageSchema,
+  title: z.string().min(1),
+  objectives: z.array(z.string().min(1)).min(1),
+  instructions: z.array(z.string().min(1)).min(1),
+  activityType: ActivityTypeSchema.default("practice"),
+  estimatedMinutes: z.number().int().min(1).max(180).default(15),
+  items: z.array(ActivityItemSchema).min(1).max(40),
+  answerSpecs: z.record(z.string(), AnswerSpecSchema),
+  scoring: ScoringSpecSchema,
+});
+export type CurriculumActivityTemplate = z.infer<typeof CurriculumActivityTemplateSchema>;
+export const CurriculumPackRevisionSchema = z.object({
+  schemaVersion: z.literal("2.0"),
+  id: IdSchema,
+  packId: RegistryIdSchema,
+  revision: z.number().int().min(1),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  subjects: z.array(CurriculumSubjectSchema).min(1),
+  concepts: z.array(CurriculumConceptSchema).min(1),
+  edges: z.array(CurriculumEdgeSchema).default([]),
+  activityTemplates: z.array(CurriculumActivityTemplateSchema).default([]),
+  provenance: SourceMetadataSchema,
+  createdBy: IdSchema,
+  createdAt: IsoDateTimeSchema,
+});
+export type CurriculumPackRevision = z.infer<typeof CurriculumPackRevisionSchema>;
+
+export const CurriculumRevisionProposalSchema = z.object({
+  id: IdSchema,
+  revision: CurriculumPackRevisionSchema,
+  rationale: z.string().min(1),
+  basedOnRevisionIds: z.array(IdSchema).default([]),
+  affectedStudentIds: z.array(IdSchema).default([]),
+  createdBy: IdSchema,
+  createdAt: IsoDateTimeSchema,
+});
+export type CurriculumRevisionProposal = z.infer<typeof CurriculumRevisionProposalSchema>;
+export const CurriculumRevisionDecisionSchema = z.object({
+  id: IdSchema,
+  proposalId: IdSchema,
+  revisionId: IdSchema,
+  decision: z.enum(["approved", "rejected"]),
+  reviewerId: IdSchema,
+  note: z.string().min(1),
+  createdAt: IsoDateTimeSchema,
+});
+export type CurriculumRevisionDecision = z.infer<typeof CurriculumRevisionDecisionSchema>;
+export const CurriculumActivationSchema = z.object({
+  id: IdSchema,
+  packId: RegistryIdSchema,
+  revisionId: IdSchema,
+  action: z.enum(["activate", "rollback"]),
+  actorId: IdSchema,
+  reason: z.string().min(1),
+  createdAt: IsoDateTimeSchema,
+});
+export type CurriculumActivation = z.infer<typeof CurriculumActivationSchema>;
+
+export const RoadmapBranchKindSchema = z.enum(["core", "extension", "extra-practice", "review", "interest"]);
+export const RoadmapNodeSchema = z.object({
+  id: IdSchema,
+  conceptId: IdSchema,
+  subject: SubjectSchema,
+  title: z.string().min(1),
+  description: z.string().min(1),
+  stage: RepresentationStageSchema,
+  status: z.enum(["completed", "current", "ready", "planned", "locked", "deferred"]),
+  branchKind: RoadmapBranchKindSchema,
+  depth: z.number().int().min(0),
+  reason: z.string().min(1),
+  evidenceCount: z.number().int().min(0).default(0),
+  recentScore: z.number().min(0).max(1).optional(),
+  reviewDue: z.boolean().default(false),
+  curriculumRevisionId: IdSchema,
+  parentConceptId: IdSchema.optional(),
+  rejoinsConceptId: IdSchema.optional(),
+});
+export const RoadmapEdgeSchema = z.object({
+  id: IdSchema,
+  from: IdSchema,
+  to: IdSchema,
+  type: z.enum(["requires", "readiness", "extends", "supports", "cross-subject", "branches", "rejoins"]),
+});
+export type RoadmapNode = z.infer<typeof RoadmapNodeSchema>;
+export type RoadmapEdge = z.infer<typeof RoadmapEdgeSchema>;
+export const LearnerRoadmapSchema = z.object({
+  schemaVersion: z.literal("1.0"),
+  id: IdSchema,
+  studentId: IdSchema,
+  subject: SubjectSchema,
+  title: z.string().min(1),
+  curriculumRevisionIds: z.array(IdSchema).min(1),
+  nodes: z.array(RoadmapNodeSchema),
+  edges: z.array(RoadmapEdgeSchema),
+  currentNodeIds: z.array(IdSchema),
+  completedNodeIds: z.array(IdSchema),
+  frontierNodeIds: z.array(IdSchema),
+  expansionNeeded: z.boolean().default(false),
+  expansionReason: z.string().min(1).optional(),
+  generatedAt: IsoDateTimeSchema,
+});
+export type LearnerRoadmap = z.infer<typeof LearnerRoadmapSchema>;
+const ChildRoadmapNodeSchema = RoadmapNodeSchema.pick({ id: true, conceptId: true, subject: true, title: true, description: true, stage: true, status: true, branchKind: true, depth: true, reviewDue: true, parentConceptId: true, rejoinsConceptId: true }).extend({ message: z.string().min(1) });
+export const ChildLearnerRoadmapSchema = LearnerRoadmapSchema.omit({ nodes: true, expansionReason: true }).extend({
+  nodes: z.array(ChildRoadmapNodeSchema),
+});
+export type ChildLearnerRoadmap = z.infer<typeof ChildLearnerRoadmapSchema>;
+export function toChildLearnerRoadmap(roadmap: LearnerRoadmap): ChildLearnerRoadmap {
+  const nodes = roadmap.nodes.filter((node) => node.status !== "locked" && node.status !== "deferred").map((node) => ({
+    id: node.id, conceptId: node.conceptId, subject: node.subject, title: node.title, description: node.description,
+    stage: node.stage, status: node.status, branchKind: node.branchKind, depth: node.depth, reviewDue: node.reviewDue,
+    ...(node.parentConceptId ? { parentConceptId: node.parentConceptId } : {}), ...(node.rejoinsConceptId ? { rejoinsConceptId: node.rejoinsConceptId } : {}),
+    message: node.status === "completed" ? "Completed" : node.status === "current" ? "You are working here" : node.branchKind === "extra-practice" || node.branchKind === "review" ? "A practice stop" : "Coming next",
+  }));
+  const visible = new Set(nodes.map((node) => node.id));
+  return ChildLearnerRoadmapSchema.parse({ ...roadmap, nodes, edges: roadmap.edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to)) });
+}
 
 export const LearningDirectiveSchema = z.object({
   id: IdSchema,

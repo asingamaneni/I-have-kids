@@ -1,14 +1,14 @@
 {
-  "name": "@kindergarten/demo",
+  "name": "@child-learning/demo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@kindergarten/contracts": "workspace:*",
-    "@kindergarten/database": "workspace:*",
-    "@kindergarten/domain": "workspace:*",
-    "@kindergarten/storage": "workspace:*"
+    "@child-learning/contracts": "workspace:*",
+    "@child-learning/database": "workspace:*",
+    "@child-learning/domain": "workspace:*",
+    "@child-learning/storage": "workspace:*"
   }
 }

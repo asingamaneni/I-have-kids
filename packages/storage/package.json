@@ -1,9 +1,9 @@
 {
-  "name": "@kindergarten/storage",
+  "name": "@child-learning/storage",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "typecheck": "tsc --noEmit" },
-  "dependencies": { "@kindergarten/contracts": "workspace:*" }
+  "dependencies": { "@child-learning/contracts": "workspace:*" }
 }

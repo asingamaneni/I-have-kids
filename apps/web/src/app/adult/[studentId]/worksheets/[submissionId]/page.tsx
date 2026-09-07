@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ActivitySpecSchema, EvaluationSchema, type AnswerSpec } from "@kindergarten/contracts";
+import { ActivitySpecSchema, EvaluationSchema, type AnswerSpec } from "@child-learning/contracts";
 import { AppShell, PageIntro } from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

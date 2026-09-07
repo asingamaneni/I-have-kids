@@ -1,4 +1,4 @@
-import type { ActivitySpec, Evaluation, ProgressEvent, ProgressionPolicy, StudentConceptState } from "@kindergarten/contracts";
+import type { ActivitySpec, Evaluation, ProgressEvent, ProgressionPolicy, StudentConceptState } from "@child-learning/contracts";
 
 export const DEFAULT_PROGRESSION_POLICY: ProgressionPolicy = {
   schemaVersion: "1.0", consecutiveToAdvance: 3, advanceThreshold: 0.9, maintainMin: 0.75,

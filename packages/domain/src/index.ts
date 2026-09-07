@@ -3,8 +3,11 @@ export * from "./scoring.js";
 export * from "./progression.js";
 export * from "./recommendations.js";
 export * from "./curriculum.js";
+export * from "./registry.js";
+export * from "./roadmap.js";
+export * from "./sample-packs.js";
 
-import type { ActivitySpec, CurriculumDefinition, StudentConceptState } from "@kindergarten/contracts";
+import type { ActivitySpec, CurriculumDefinition, StudentConceptState } from "@child-learning/contracts";
 
 export function hasSecuredEvidence(state: StudentConceptState): boolean {
   const recent = state.recentScores.slice(-3);

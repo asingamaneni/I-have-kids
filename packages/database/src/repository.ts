@@ -1,5 +1,5 @@
-import { ActivitySpecSchema } from "@kindergarten/contracts";
-import type { ActivitySpec, Evaluation, ProgressEvent, Recommendation, ReportSnapshot, Submission } from "@kindergarten/contracts";
+import { ActivitySpecSchema, CurriculumActivationSchema, CurriculumPackRevisionSchema, CurriculumRevisionDecisionSchema, CurriculumRevisionProposalSchema, LearnerRoadmapSchema } from "@child-learning/contracts";
+import type { ActivitySpec, CurriculumActivation, CurriculumPackRevision, CurriculumRevisionDecision, CurriculumRevisionProposal, Evaluation, LearnerRoadmap, ProgressEvent, Recommendation, ReportSnapshot, Submission } from "@child-learning/contracts";
 import type { SqliteDatabase } from "./db.js";
 
 export type JsonObject = Record<string, unknown>;
@@ -183,6 +183,88 @@ export class LearningRepository {
       version=excluded.version, metadata_json=excluded.metadata_json, updated_at=excluded.updated_at`).run({
       ...input, conceptId: input.conceptId ?? null, version: input.version ?? "1", metadata: json(input.metadata), now
     });
+  }
+
+  saveCurriculumRevision(revisionInput: CurriculumPackRevision, sha256: string, artifactId?: string): CurriculumPackRevision {
+    const revision = CurriculumPackRevisionSchema.parse(revisionInput);
+    const result = this.db.prepare(`INSERT INTO curriculum_revisions (id,pack_id,revision_number,title,definition_json,sha256,artifact_id,created_by,created_at)
+      VALUES (@id,@packId,@revisionNumber,@title,@definition,@sha256,@artifactId,@createdBy,@createdAt) ON CONFLICT(id) DO NOTHING`).run({ id: revision.id, packId: revision.packId, revisionNumber: revision.revision, title: revision.title, definition: JSON.stringify(revision), sha256, artifactId: artifactId ?? null, createdBy: revision.createdBy, createdAt: revision.createdAt });
+    if (result.changes === 0) {
+      const existing = this.db.prepare("SELECT definition_json,sha256,artifact_id FROM curriculum_revisions WHERE id = ?").get(revision.id) as { definition_json: string; sha256: string; artifact_id: string | null } | undefined;
+      if (!existing || existing.definition_json !== JSON.stringify(revision) || existing.sha256 !== sha256 || existing.artifact_id !== (artifactId ?? null)) throw new Error(`curriculum revision id conflicts with different content: ${revision.id}`);
+    }
+    return revision;
+  }
+
+  getCurriculumRevision(id: string): CurriculumPackRevision | undefined {
+    const row = this.db.prepare("SELECT definition_json FROM curriculum_revisions WHERE id = ?").get(id) as { definition_json: string } | undefined;
+    return row ? CurriculumPackRevisionSchema.parse(JSON.parse(row.definition_json)) : undefined;
+  }
+
+  listCurriculumRevisions(packId?: string): CurriculumPackRevision[] {
+    const rows = (packId ? this.db.prepare("SELECT definition_json FROM curriculum_revisions WHERE pack_id = ? ORDER BY revision_number").all(packId) : this.db.prepare("SELECT definition_json FROM curriculum_revisions ORDER BY pack_id,revision_number").all()) as { definition_json: string }[];
+    return rows.map((row) => CurriculumPackRevisionSchema.parse(JSON.parse(row.definition_json)));
+  }
+
+  saveCurriculumProposal(proposalInput: CurriculumRevisionProposal, artifactId?: string): CurriculumRevisionProposal {
+    const proposal = CurriculumRevisionProposalSchema.parse(proposalInput);
+    const proposalJson = JSON.stringify(proposal);
+    const storedArtifactId = artifactId ?? null;
+    const result = this.db.prepare(`INSERT INTO curriculum_proposals (id,revision_id,proposal_json,artifact_id,created_by,created_at)
+      VALUES (@id,@revisionId,@proposal,@artifactId,@createdBy,@createdAt) ON CONFLICT(id) DO NOTHING`).run({ id: proposal.id, revisionId: proposal.revision.id, proposal: proposalJson, artifactId: storedArtifactId, createdBy: proposal.createdBy, createdAt: proposal.createdAt });
+    if (result.changes === 0) {
+      const existing = this.db.prepare("SELECT revision_id,proposal_json,artifact_id FROM curriculum_proposals WHERE id = ?").get(proposal.id) as { revision_id: string; proposal_json: string; artifact_id: string | null } | undefined;
+      if (!existing || existing.revision_id !== proposal.revision.id || existing.proposal_json !== proposalJson || existing.artifact_id !== storedArtifactId) throw new Error(`curriculum proposal id conflicts with different content: ${proposal.id}`);
+    }
+    return proposal;
+  }
+
+  getCurriculumProposal(id: string): CurriculumRevisionProposal | undefined {
+    const row = this.db.prepare("SELECT proposal_json FROM curriculum_proposals WHERE id = ?").get(id) as { proposal_json: string } | undefined;
+    return row ? CurriculumRevisionProposalSchema.parse(JSON.parse(row.proposal_json)) : undefined;
+  }
+
+  listCurriculumProposals(): Array<{ proposal: CurriculumRevisionProposal; decision?: CurriculumRevisionDecision }> {
+    const rows = this.db.prepare(`SELECT p.proposal_json,d.decision_json FROM curriculum_proposals p LEFT JOIN curriculum_decisions d ON d.rowid = (SELECT d2.rowid FROM curriculum_decisions d2 WHERE d2.proposal_id = p.id ORDER BY d2.created_at DESC,d2.rowid DESC LIMIT 1) ORDER BY p.created_at DESC,p.rowid DESC`).all() as Array<{ proposal_json: string; decision_json: string | null }>;
+    return rows.map((row) => ({ proposal: CurriculumRevisionProposalSchema.parse(JSON.parse(row.proposal_json)), ...(row.decision_json ? { decision: CurriculumRevisionDecisionSchema.parse(JSON.parse(row.decision_json)) } : {}) }));
+  }
+
+  saveCurriculumDecision(decisionInput: CurriculumRevisionDecision): CurriculumRevisionDecision {
+    const decision = CurriculumRevisionDecisionSchema.parse(decisionInput);
+    this.db.prepare(`INSERT INTO curriculum_decisions (id,proposal_id,revision_id,decision,reviewer_id,note,decision_json,created_at)
+      VALUES (@id,@proposalId,@revisionId,@decision,@reviewerId,@note,@decisionJson,@createdAt)`).run({ ...decision, decisionJson: JSON.stringify(decision) });
+    return decision;
+  }
+
+  saveCurriculumActivation(activationInput: CurriculumActivation): CurriculumActivation {
+    const activation = CurriculumActivationSchema.parse(activationInput);
+    this.db.prepare(`INSERT INTO curriculum_activations (id,pack_id,revision_id,action,actor_id,reason,activation_json,created_at)
+      VALUES (@id,@packId,@revisionId,@action,@actorId,@reason,@activationJson,@createdAt)`).run({ ...activation, activationJson: JSON.stringify(activation) });
+    return activation;
+  }
+
+  listActiveCurriculumRevisions(): CurriculumPackRevision[] {
+    const rows = this.db.prepare(`SELECT r.definition_json FROM curriculum_revisions r JOIN curriculum_activations a ON a.revision_id = r.id
+      WHERE a.rowid = (SELECT a2.rowid FROM curriculum_activations a2 WHERE a2.pack_id = a.pack_id ORDER BY a2.created_at DESC,a2.rowid DESC LIMIT 1)
+      ORDER BY r.pack_id`).all() as { definition_json: string }[];
+    return rows.map((row) => CurriculumPackRevisionSchema.parse(JSON.parse(row.definition_json)));
+  }
+
+  saveLearnerRoadmap(roadmapInput: LearnerRoadmap, input: { artifactId?: string; source: string; reason: string }): LearnerRoadmap {
+    const roadmap = LearnerRoadmapSchema.parse(roadmapInput);
+    this.db.prepare(`INSERT INTO learner_roadmap_revisions (id,student_id,subject,curriculum_revision_ids_json,graph_json,artifact_id,source,reason,created_at)
+      VALUES (@id,@studentId,@subject,@revisionIds,@graph,@artifactId,@source,@reason,@createdAt) ON CONFLICT(id) DO NOTHING`).run({ id: roadmap.id, studentId: roadmap.studentId, subject: roadmap.subject, revisionIds: JSON.stringify(roadmap.curriculumRevisionIds), graph: JSON.stringify(roadmap), artifactId: input.artifactId ?? null, source: input.source, reason: input.reason, createdAt: roadmap.generatedAt });
+    return roadmap;
+  }
+
+  getLatestLearnerRoadmap(studentId: string, subject: string): LearnerRoadmap | undefined {
+    const row = this.db.prepare("SELECT graph_json FROM learner_roadmap_revisions WHERE student_id = ? AND subject = ? ORDER BY created_at DESC,rowid DESC LIMIT 1").get(studentId, subject) as { graph_json: string } | undefined;
+    return row ? LearnerRoadmapSchema.parse(JSON.parse(row.graph_json)) : undefined;
+  }
+
+  recordRoadmapReconciliation(input: { id: string; studentId: string; triggerType: string; triggerId?: string; result: JsonObject; operationKey?: string }): void {
+    this.db.prepare(`INSERT INTO roadmap_reconciliation_runs (id,student_id,trigger_type,trigger_id,result_json,created_at,operation_key)
+      VALUES (@id,@studentId,@triggerType,@triggerId,@result,@createdAt,@operationKey) ON CONFLICT(operation_key) DO NOTHING`).run({ ...input, triggerId: input.triggerId ?? null, result: JSON.stringify(input.result), createdAt: this.clock(), operationKey: input.operationKey ?? null });
   }
 
   listActivities(studentId?: string): Record<string, unknown>[] {

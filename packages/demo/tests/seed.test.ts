@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { seedDemo } from "../src/index.js";
-import { migrateDatabase, openDatabase } from "@kindergarten/database";
+import { migrateDatabase, openDatabase } from "@child-learning/database";
 
 describe("demo seed", () => {
   it("seeds four comparable addition observations and is replayable", async () => {

@@ -68,15 +68,15 @@ function responseControl(activity: WorksheetActivity, item: WorksheetItem, optio
   const answer = answerFor(activity, item.id);
   const answerLabel = `Answer for question ${questionNumber}`;
   if (options.showAnswers) return <span className="answer-reveal" data-answer-for={item.id}>{answer}</span>;
-  if (item.kind === "number-choice" || item.kind === "phonics-picture-word") {
+  if (item.kind === "number-choice" || item.kind === "phonics-picture-word" || item.kind === "selected-response") {
     const choices = item.kind === "number-choice" ? item.choices.map(String) : (item.choices ?? []);
     return <div className="choice-row" role="group" aria-label={`Answer choices for question ${questionNumber}`}>
       {choices.map((choice, index) => <label className="choice-chip" key={`${choice}-${index}`}><input type="radio" name={name} value={choice} /> <span>{choice}</span></label>)}
     </div>;
   }
-  if (item.kind === "handwriting-writing") return <textarea className="response-writing" name={name} aria-label={answerLabel} rows={2} placeholder="Write here" />;
+  if (item.kind === "handwriting-writing" || item.kind === "extended-response") return <textarea className="response-writing" name={name} aria-label={answerLabel} rows={item.kind === "extended-response" ? item.minimumLines : 2} placeholder="Write here" />;
   if (item.kind === "reading-comprehension") return item.choices ? <select className="response-select" name={name} aria-label={answerLabel} defaultValue=""><option value="" disabled>Choose an answer</option>{item.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select> : <input className="response-input" name={name} aria-label={answerLabel} />;
-  if (item.kind === "sequencing-reasoning") return <input className="response-input" name={name} aria-label={answerLabel} placeholder="Write the card numbers in order." />;
+  if (item.kind === "sequencing-reasoning" || item.kind === "ordering") return <input className="response-input" name={name} aria-label={answerLabel} placeholder="Write the numbers in order." />;
   if (item.kind === "science-observation") return <textarea className="response-writing" name={name} aria-label={answerLabel} rows={2} placeholder="What do you notice?" />;
   return <input className="response-input response-number" name={name} inputMode="numeric" aria-label={answerLabel} />;
 }
@@ -87,6 +87,7 @@ function renderItem(activity: WorksheetActivity, item: WorksheetItem, index: num
     <div className="item-number" aria-hidden="true">{index + 1}</div>
     <div className="item-body">
       <p className="item-prompt">{itemPrompt(item)}</p>
+      {(item.kind === "selected-response" || item.kind === "numeric-response" || item.kind === "short-response" || item.kind === "extended-response" || item.kind === "ordering") && item.content && <section className="reading-model content-block"><p className="passage">{item.content}</p></section>}
       {item.kind === "picture-addition-subtraction" && <div className={`addition-visual ${item.operation === "subtraction" ? "take-away-visual" : ""}`} aria-label={`${item.leftCount} ${item.operation === "addition" ? "plus" : "take away"} ${item.rightCount}`}>
         {item.operation === "subtraction"
           ? subtractionPictureGroup(item.assetRefs[0], item.leftCount, item.rightCount, options.assetBasePath, "pictures")
@@ -101,6 +102,7 @@ function renderItem(activity: WorksheetActivity, item: WorksheetItem, index: num
       {item.kind === "handwriting-writing" && <section className="writing-model" aria-label={`Writing guide: ${item.targetText}`}><div className="model-label">{item.mode === "trace" ? "Trace the example" : item.mode === "copy" ? "Copy the example" : "Write your own"}</div><div className={`trace-guide trace-${item.mode}`}>{item.mode === "free-write" ? "" : item.targetText}</div><div className="ruled-writing-space" aria-label="Ruled writing space">{Array.from({ length: item.targetText.length > 4 ? 3 : 2 }, (_, line) => <div className="writing-line" key={line} />)}</div></section>}
       {item.kind === "equal-groups-fair-sharing" && <div className={`group-display group-${item.mode}`}><div className="model-label">{item.mode === "equal-groups" ? "Put the same number in each box" : "Share one at a time"}</div>{counterBoxes(item.total, item.groupCount)}<span className="group-action" aria-hidden="true">{item.mode === "equal-groups" ? "Each group must be equal." : "Each person gets the same number."}</span></div>}
       {item.kind === "sequencing-reasoning" && <div className="sequence-display" aria-label="Cards for this question">{item.sequence.map((part, partIndex) => <span key={`${part}-${partIndex}`} className="sequence-card"><b>{partIndex + 1}</b>{part}</span>)}</div>}
+      {item.kind === "ordering" && <div className="sequence-display" aria-label="Items to put in order">{item.options.map((part, partIndex) => <span key={`${part}-${partIndex}`} className="sequence-card"><b>{partIndex + 1}</b>{part}</span>)}</div>}
       {item.kind === "science-observation" && <section className="science-prompt"><div className="model-label">Observe.</div><p>{item.observationPrompt}</p><div className="feature-list">{item.observableFeatures.map((feature) => <span key={feature}>{feature}</span>)}</div>{item.safetyNote && <p className="safety-note">{item.safetyNote}</p>}</section>}
       {!pictureAnswerInline && <div className="response-area">{responseControl(activity, item, options, index + 1)}</div>}
     </div>
@@ -114,7 +116,9 @@ export function worksheetTemplateFor(activity: WorksheetActivity): string {
     case "reading-comprehension": return "read-and-respond";
     case "phonics-picture-word": return "phonics-and-words";
     case "handwriting-writing": return "handwriting-and-writing";
-    case "sequencing-reasoning": case "science-observation": return "reason-and-sort";
+    case "sequencing-reasoning": case "science-observation": case "ordering": return "reason-and-sort";
+    case "extended-response": return "handwriting-and-writing";
+    case "selected-response": case "numeric-response": case "short-response": return "mixed-review";
     default: return "mixed-review";
   }
 }

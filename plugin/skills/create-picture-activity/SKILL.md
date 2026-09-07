@@ -1,6 +1,6 @@
 ---
 name: create-picture-activity
-description: "Create a picture-centered kindergarten activity whose images carry instructional meaning."
+description: "Create a picture-centered child learning activity whose images carry instructional meaning."
 whenToUse: When the requested practice depends on counting, matching, identification, sequencing, or picture-supported language.
 argumentHint: "[subject] [concept] [activity-type] [difficulty]"
 model: inherit

@@ -1,6 +1,6 @@
 ---
 description: Evaluate completed work linked to an exact activity.
-argumentHint: "[activity-id] [submission-id-or-path]"
+argumentHint: "[activity-id] [submission-id]"
 model: inherit
 ---
 
