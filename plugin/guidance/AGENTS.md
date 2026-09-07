@@ -1,6 +1,6 @@
 # Kindergarten Learning Plugin guidance
 
-This plugin is a local-first learning loop for kindergarten children. Preserve the following invariants in every skill, command, agent, and local tool interaction.
+This plugin is a local-first learning loop for kindergarten children. Preserve the following invariants in every reusable skill, user-invocable entry skill, agent, and local tool interaction.
 
 ## Safety, privacy, and locality
 
