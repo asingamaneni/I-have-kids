@@ -50,25 +50,25 @@ importers:
 
   apps/web:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@kindergarten/database':
+      '@child-learning/database':
         specifier: workspace:*
         version: link:../../packages/database
-      '@kindergarten/demo':
+      '@child-learning/demo':
         specifier: workspace:*
         version: link:../../packages/demo
-      '@kindergarten/domain':
+      '@child-learning/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@kindergarten/mcp-server':
+      '@child-learning/mcp-server':
         specifier: workspace:*
         version: link:../../packages/mcp-server
-      '@kindergarten/rendering':
+      '@child-learning/rendering':
         specifier: workspace:*
         version: link:../../packages/rendering
-      '@kindergarten/storage':
+      '@child-learning/storage':
         specifier: workspace:*
         version: link:../../packages/storage
       class-variance-authority:
@@ -114,10 +114,10 @@ importers:
 
   packages/database:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@kindergarten/domain':
+      '@child-learning/domain':
         specifier: workspace:*
         version: link:../domain
       better-sqlite3:
@@ -126,40 +126,40 @@ importers:
 
   packages/demo:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@kindergarten/database':
+      '@child-learning/database':
         specifier: workspace:*
         version: link:../database
-      '@kindergarten/domain':
+      '@child-learning/domain':
         specifier: workspace:*
         version: link:../domain
-      '@kindergarten/storage':
+      '@child-learning/storage':
         specifier: workspace:*
         version: link:../storage
 
   packages/domain:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
 
   packages/mcp-server:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@kindergarten/database':
+      '@child-learning/database':
         specifier: workspace:*
         version: link:../database
-      '@kindergarten/demo':
+      '@child-learning/demo':
         specifier: workspace:*
         version: link:../demo
-      '@kindergarten/domain':
+      '@child-learning/domain':
         specifier: workspace:*
         version: link:../domain
-      '@kindergarten/storage':
+      '@child-learning/storage':
         specifier: workspace:*
         version: link:../storage
       '@modelcontextprotocol/sdk':
@@ -171,7 +171,7 @@ importers:
 
   packages/rendering:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
       playwright:
@@ -183,7 +183,7 @@ importers:
 
   packages/storage:
     dependencies:
-      '@kindergarten/contracts':
+      '@child-learning/contracts':
         specifier: workspace:*
         version: link:../contracts
 

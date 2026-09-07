@@ -1,8 +1,8 @@
 ---
 name: check-work
-description: "Evaluate completed kindergarten work with deterministic scoring and explicit uncertainty."
-whenToUse: When a caregiver or teacher submits paper, image, digital responses, or a completed activity for evaluation.
-argumentHint: "[activity-id] [submission-id-or-path]"
+description: "Evaluate completed school-age learning work with deterministic scoring and explicit uncertainty."
+whenToUse: When a caregiver or teacher wants to evaluate a stored digital submission or paper/image work already uploaded through the web interface.
+argumentHint: "[activity-id] [submission-id]"
 model: inherit
 effort: medium
 ---

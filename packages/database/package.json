@@ -1,13 +1,13 @@
 {
-  "name": "@kindergarten/database",
+  "name": "@child-learning/database",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@kindergarten/contracts": "workspace:*",
-    "@kindergarten/domain": "workspace:*",
+    "@child-learning/contracts": "workspace:*",
+    "@child-learning/domain": "workspace:*",
     "better-sqlite3": "13.0.3"
   }
 }

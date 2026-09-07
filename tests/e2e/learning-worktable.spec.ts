@@ -16,14 +16,33 @@ test("landing and child shelf are reachable", async ({ page }) => {
   await expect(page.getByText("Practice shelf")).toBeVisible();
 });
 
+test("child and adult can see the evolving subject roadmap", async ({ page }) => {
+  await page.goto("/child/student-demo-ava");
+  await expect(page.getByText("My learning map").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Counting to 10/ })).toBeVisible();
+  await page.getByRole("link", { name: "My learning map" }).click();
+  await expect(page.getByRole("heading", { name: "See how your map grows." })).toBeVisible();
+  const adultPage = await page.context().newPage();
+  await adultPage.goto("/adult/student-demo-ava/path");
+  await expect(adultPage.getByRole("heading", { name: "Learning roadmap" })).toBeVisible();
+  await expect(adultPage.getByText(/roadmap stops/)).toBeVisible();
+  await adultPage.close();
+  const curriculumPage = await page.context().newPage();
+  await curriculumPage.goto("/adult/student-demo-ava/curriculum");
+  await expect(curriculumPage.getByRole("heading", { name: "Roadmap revisions" })).toBeVisible();
+  await expect(curriculumPage.getByText("Growing learning paths")).toBeVisible();
+  await curriculumPage.close();
+});
+
 test("a local user can report current abilities and receive a starting diagnostic", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "Profile mutation runs once in desktop Chromium");
   await page.goto("/setup");
+  await expect(page.getByText("Social Studies", { exact: true }).first()).toBeVisible();
   await page.getByLabel("Child's display name").fill("Local Learner");
-  await page.getByLabel(/School placement/).fill("Kindergarten");
-  await page.getByLabel("Joins groups to add with objects or pictures").check();
+  await page.getByLabel(/School placement/).fill("Grade 4, mixed level");
+  await page.getByLabel("Addition within 10 with objects or pictures").check();
   await page.getByLabel(/Current interests/).fill("Builds number stories with blocks.");
-  await page.getByRole("button", { name: "Create learner and starting assessment" }).click();
+  await page.getByRole("button", { name: "Create learner and learning roadmap" }).click();
   await expect(page.getByRole("heading", { name: /Hi, Local/ })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("link", { name: /Starting check: Picture addition within 10/ }).click();
   await expect(page.getByRole("heading", { name: "Starting check: Picture addition within 10" })).toBeVisible();
@@ -75,8 +94,13 @@ test("child routes never serialize answer contracts or hidden item answers", asy
   const response = await request.get("/api/activities/activity-addition-01");
   expect(response.ok()).toBe(true);
   const activity = await response.json() as { answerSpecs?: unknown; items: Array<Record<string, unknown>> };
-  expect(activity).not.toHaveProperty("answerSpecs");
+  for (const hiddenField of ["answerSpecs", "scoring", "curriculumVersion", "curriculumRef", "rationale", "sourceMetadata", "generator", "seed"]) expect(activity).not.toHaveProperty(hiddenField);
   expect(activity.items[0]).not.toHaveProperty("result");
+  const roadmapResponse = await request.get("/api/students/student-demo-ava/roadmap?audience=adult");
+  expect(roadmapResponse.ok()).toBe(true);
+  const roadmap = await roadmapResponse.json() as { audience: string; roadmaps: Array<{ nodes: Array<Record<string, unknown>> }> };
+  expect(roadmap.audience).toBe("child");
+  expect(roadmap.roadmaps.flatMap((entry) => entry.nodes).every((node) => !("reason" in node) && !("recentScore" in node))).toBe(true);
   await page.goto("/child/student-demo-ava/activity/activity-addition-01");
   const serialized = await page.locator("script").allTextContents();
   expect(serialized.join("\n")).not.toContain("answerSpecs");
@@ -112,7 +136,10 @@ test("photo work is normalized locally and enters the adult review queue", async
   await expect(reviewedScore).toBeVisible({ timeout: 15_000 });
   await reviewedScore.fill("80");
   await adultEvidence.fill("Adult checked eight of ten responses against the worksheet.");
+  const confirmation = adultPage.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/api/reviews/") && response.url().endsWith("/confirm"));
   await adultPage.getByRole("button", { name: "Confirm reviewed score" }).first().click();
+  expect((await confirmation).ok()).toBe(true);
+  await adultPage.reload();
   await expect(adultPage.getByText("Nothing here yet. New evidence will appear after the next activity.")).toBeVisible({ timeout: 15_000 });
   await adultPage.close();
 });

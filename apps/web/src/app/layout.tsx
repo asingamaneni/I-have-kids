@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Learning Worktable",
-  description: "Local, adaptive kindergarten practice with a complete evidence trail."
+  description: "Local, adaptive subject roadmaps that grow with each child's confirmed learning."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

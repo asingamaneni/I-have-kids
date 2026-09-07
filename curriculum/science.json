@@ -3,13 +3,73 @@
   "subject": "science",
   "title": "Capability-based science pathway",
   "concepts": [
-    { "id": "science.observe-and-describe", "subject": "science", "title": "Observe and describe", "description": "Use senses safely to notice and describe features.", "step": 0, "prerequisites": [], "readinessConceptIds": [], "activityKinds": ["science-observation"], "allowEarlyIntroduction": true, "stages": [
-      { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "science.observe-and-describe", "minimumConfirmed": 1, "minimumAverage": 0 },
-      { "stage": "pictorial", "deliveryMode": "guided-screen", "evidencePurpose": "mastery", "generator": "science.observe-and-describe", "minimumConfirmed": 2, "minimumAverage": 0.8 }
-    ] },
-    { "id": "science.sort-living-things", "subject": "science", "title": "Sort living things", "description": "Compare observable features of plants and animals.", "step": 1, "prerequisites": [], "readinessConceptIds": ["science.observe-and-describe"], "activityKinds": ["science-observation", "sequencing-reasoning"], "allowEarlyIntroduction": true, "stages": [
-      { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "science.sort-living-things", "minimumConfirmed": 1, "minimumAverage": 0 },
-      { "stage": "pictorial", "deliveryMode": "guided-screen", "evidencePurpose": "mastery", "generator": "science.sort-living-things", "minimumConfirmed": 2, "minimumAverage": 0.8 }
-    ] }
+    {
+      "id": "science.observe-and-describe",
+      "subject": "science",
+      "title": "Observe and describe",
+      "description": "Use senses safely to notice and describe features.",
+      "step": 0,
+      "prerequisites": [],
+      "readinessConceptIds": [],
+      "activityKinds": [
+        "science-observation"
+      ],
+      "allowEarlyIntroduction": true,
+      "stages": [
+        {
+          "stage": "concrete",
+          "deliveryMode": "hands-on",
+          "evidencePurpose": "exploration",
+          "generator": "science.observe-and-describe",
+          "minimumConfirmed": 1,
+          "minimumAverage": 0
+        },
+        {
+          "stage": "pictorial",
+          "deliveryMode": "guided-screen",
+          "evidencePurpose": "mastery",
+          "generator": "science.observe-and-describe",
+          "minimumConfirmed": 2,
+          "minimumAverage": 0.8
+        }
+      ],
+      "assessmentClaims": [
+        "science.observes-and-describes"
+      ]
+    },
+    {
+      "id": "science.sort-living-things",
+      "subject": "science",
+      "title": "Sort living things",
+      "description": "Compare observable features of plants and animals.",
+      "step": 1,
+      "prerequisites": [],
+      "readinessConceptIds": [
+        "science.observe-and-describe"
+      ],
+      "activityKinds": [
+        "science-observation",
+        "sequencing-reasoning"
+      ],
+      "allowEarlyIntroduction": true,
+      "stages": [
+        {
+          "stage": "concrete",
+          "deliveryMode": "hands-on",
+          "evidencePurpose": "exploration",
+          "generator": "science.sort-living-things",
+          "minimumConfirmed": 1,
+          "minimumAverage": 0
+        },
+        {
+          "stage": "pictorial",
+          "deliveryMode": "guided-screen",
+          "evidencePurpose": "mastery",
+          "generator": "science.sort-living-things",
+          "minimumConfirmed": 2,
+          "minimumAverage": 0.8
+        }
+      ]
+    }
   ]
 }

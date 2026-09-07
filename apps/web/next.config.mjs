@@ -10,13 +10,13 @@ const nextConfig = {
   },
   serverExternalPackages: ["better-sqlite3"],
   transpilePackages: [
-    "@kindergarten/contracts",
-    "@kindergarten/database",
-    "@kindergarten/demo",
-    "@kindergarten/mcp-server",
-    "@kindergarten/domain",
-    "@kindergarten/rendering",
-    "@kindergarten/storage"
+    "@child-learning/contracts",
+    "@child-learning/database",
+    "@child-learning/demo",
+    "@child-learning/mcp-server",
+    "@child-learning/domain",
+    "@child-learning/rendering",
+    "@child-learning/storage"
   ]
 };
 

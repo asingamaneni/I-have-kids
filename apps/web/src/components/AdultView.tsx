@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AppShell, EvidenceTrail, PageIntro, StatCard } from "./AppShell";
-import type { Student } from "@kindergarten/contracts";
+import type { Student } from "@child-learning/contracts";
 import { ReviewForm } from "./ReviewForm";
 import { ReviewActions } from "./ReviewActions";
 import { ReportActions } from "./ReportActions";

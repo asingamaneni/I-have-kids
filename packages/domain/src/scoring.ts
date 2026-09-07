@@ -1,4 +1,4 @@
-import type { ActivitySpec, Evaluation, Submission } from "@kindergarten/contracts";
+import type { ActivitySpec, Evaluation, Submission } from "@child-learning/contracts";
 
 export interface ScoreResult { score: number; mistakeTags: string[]; rationale: string; }
 export interface ScoreSubmissionOptions { evaluationId?: string; now?: Date | string; evaluatorType?: "deterministic" | "review_gated_precheck" | "human" | "hybrid" | "claude_code_assisted"; }

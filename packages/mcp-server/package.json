@@ -1,16 +1,16 @@
 {
-  "name": "@kindergarten/mcp-server",
+  "name": "@child-learning/mcp-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/server.ts",
   "scripts": { "typecheck": "tsc --noEmit" },
   "dependencies": {
-    "@kindergarten/contracts": "workspace:*",
-    "@kindergarten/database": "workspace:*",
-    "@kindergarten/demo": "workspace:*",
-    "@kindergarten/domain": "workspace:*",
-    "@kindergarten/storage": "workspace:*",
+    "@child-learning/contracts": "workspace:*",
+    "@child-learning/database": "workspace:*",
+    "@child-learning/demo": "workspace:*",
+    "@child-learning/domain": "workspace:*",
+    "@child-learning/storage": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "4.5.4"
   }

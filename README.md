@@ -1,21 +1,21 @@
 # Learning Worktable
 
-Learning Worktable is a local-first, capability-based early learning application and an Omniplug showcase. It creates original picture-rich practice, preserves generated and completed work, scores deterministic answers, tracks concept-level evidence, and explains why the next activity was selected.
+Learning Worktable is a local-first, capability-based learning application and `child-learning` Omniplug showcase for school-age learners. It creates an evidence-backed graph for each subject, starts near the child's demonstrated ability, adds approved concepts and practice branches as learning evolves, and preserves every generated activity, completed work sample, roadmap revision, and progress decision.
 
 The application never calls the Anthropic API and needs no model credentials. Claude Code supplies the optional reasoning layer through the compiled plugin and local stdio MCP server; application code remains responsible for validation, known answers, scoring, progression, storage, and audit history.
 
 ## What is included
 
 - Original picture-rich workbook structure with clear modeling, guided practice, independent work, application, and review.
-- Picture addition and subtraction, counting, equal-group and fair-sharing foundations, English phonics/reading/writing, reasoning, and starter science activity contracts.
+- Original early foundations plus data-driven later examples in place value, fractions, reading and writing, ecosystems, maps, communities, and local government; approved local packs can add any subject.
 - A subject-neutral, versioned `ActivitySpec` stored before any worksheet is rendered.
 - Digital child activities and stable US Letter worksheet PDFs.
 - A separate adult answer sheet—never serialized through child routes or APIs.
 - Local worksheet-photo submission with explicit adult review and no OCR claim.
-- A child-specific concept path that moves from concrete materials to pictures and symbols, with deterministic scoring, controlled difficulty steps, and spaced reviews.
+- A visual child-specific learning graph with completed, current, upcoming, extension, review, and extra-practice branches; age and grade are context, never ceilings.
 - Append-only progress, recommendation, evaluation, override, report, and artifact lineage records.
-- Adult dashboard, capability path controls, worksheet/response archive, correct-answer review, progress/history/review/report views, and optional local PIN protection.
-- Canonical Omniplug source compiling reusable capabilities and manual `/kindergarten-*` entry points as Claude Code skills, alongside agents, hooks, guidance, and MCP configuration.
+- Adult dashboard, full subject-roadmap controls, immutable curriculum proposal approval, worksheet/response archive, child-safe roadmap views, reports, and optional local PIN protection.
+- Canonical Omniplug source compiling reusable capabilities and manual `/child-learning-*` entry points as Claude Code skills, alongside agents, hooks, guidance, and MCP configuration.
 
 ## Architecture
 
@@ -71,7 +71,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open <http://127.0.0.1:3000> and choose **Set up a learner**. An adult can state what the child comfortably does today and add a short observation note. The app creates brief starting diagnostics near that reported level; the statements remain hypotheses and never count as mastery until confirmed by the child's work. Leave the capability checklist blank to begin with a concrete counting introduction. No demo seed or account is required.
+Open <http://127.0.0.1:3000> and choose **Set up a learner**. An adult can state what the child comfortably does today and add a short observation note. The app creates brief starting diagnostics near that reported level; the statements remain hypotheses and never count as mastery until confirmed by the child's work. Leave the capability checklist blank to begin at the first configured stage of each selected subject. No demo seed or account is required.
 
 To load the reproducible Ava demo instead:
 
@@ -82,9 +82,11 @@ pnpm dev
 
 Demo routes:
 
-- Child shelf: <http://127.0.0.1:3000/child/student-demo-ava>
+- Child shelf and compact learning graph: <http://127.0.0.1:3000/child/student-demo-ava>
+- Dedicated child learning map: <http://127.0.0.1:3000/child/student-demo-ava/roadmap>
 - Adult dashboard: <http://127.0.0.1:3000/adult/student-demo-ava>
-- Learning path: <http://127.0.0.1:3000/adult/student-demo-ava/path>
+- Adult learning roadmap: <http://127.0.0.1:3000/adult/student-demo-ava/path>
+- Curriculum revisions and approvals: <http://127.0.0.1:3000/adult/student-demo-ava/curriculum>
 - Worksheet history: <http://127.0.0.1:3000/adult/student-demo-ava/worksheets>
 - Printable worksheet: <http://127.0.0.1:3000/print/activity/activity-addition-01>
 - Adult answer guide: <http://127.0.0.1:3000/print/activity/activity-addition-01/answers>
@@ -93,11 +95,12 @@ Demo routes:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `LEARNING_WORKTABLE_DB` | SQLite database path | `.data/learning-worktable.db` |
-| `LEARNING_WORKTABLE_ARTIFACTS` | Immutable activity, submission, evaluation, and report bytes | `.data/artifacts/` |
+| `CHILD_LEARNING_PROJECT_ROOT` | Preferred explicit project root for the plugin and MCP bundle | workspace root |
+| `CHILD_LEARNING_DB_PATH` or `LEARNING_WORKTABLE_DB` | SQLite database path | `.data/learning-worktable.db` |
+| `CHILD_LEARNING_ARTIFACTS_DIR` or `LEARNING_WORKTABLE_ARTIFACTS` | Immutable activity, curriculum, roadmap, submission, evaluation, and report bytes | `.data/artifacts/` |
 | `LEARNING_ADULT_PIN` | Optional local adult-area PIN | unset |
 
-The web app and the Claude Code plugin resolve these relative paths from the pnpm workspace root, not from the process working directory. A child created in the browser is therefore available to Claude Code from the same checkout. Existing checkouts that already contain `apps/web/.data/learning-worktable.db` continue using that legacy database and its artifact directory automatically, unless explicit paths are configured.
+The preferred `CHILD_LEARNING_*` names take precedence. Existing `KINDERGARTEN_PROJECT_ROOT`, `KINDERGARTEN_DB_PATH`, and `KINDERGARTEN_ARTIFACTS_DIR` settings remain supported as compatibility fallbacks. The web app and the Claude Code plugin resolve relative paths from the pnpm workspace root, not from the process working directory. A child created in the browser is therefore available to Claude Code from the same checkout. Existing checkouts that already contain `apps/web/.data/learning-worktable.db` continue using that legacy database and its artifact directory automatically, unless explicit paths are configured.
 
 Both data locations are gitignored. To keep separate households or test environments isolated, start the app and Claude Code with the same explicit paths:
 
@@ -123,33 +126,32 @@ Set a PIN before starting the app:
 LEARNING_ADULT_PIN=2468 pnpm dev
 ```
 
-When configured, setup, adult pages, reports, answer sheets, activity generation, reviews, and overrides require the local PIN. This is a local demo boundary, not production identity management.
+When configured, setup, adult pages, reports, answer sheets, curriculum review, activity generation, reviews, and overrides require the local PIN. Protected API requests without the access cookie return a JSON `401` response rather than redirecting and losing a pending mutation. Child pages and child-safe activity and roadmap reads remain available. This is a local demo boundary, not production identity management.
 
 ## Typical local workflow
 
-1. Open `/setup` and create a learner, or run `pnpm seed` for the demo.
-2. In **Adult view → Learning path**, review every concept and its current concrete, pictorial, or abstract stage. Introduce, prioritize, defer, or restore concepts with an adult note.
-3. In the child shelf, use **See all**, **By subject**, or **By concept** and open the recommended practice.
-4. For paper work, choose **Use a paper worksheet**, then select **Print worksheet** in the browser. A completed paper page can be photographed and stored for adult review.
-5. In **Adult view → Reviews**, confirm subjective/photo evidence before it affects progress.
-6. In **Adult view → Worksheets**, open prior worksheets, child responses, correct answers or rubrics, and per-item rationale.
-7. In **Adult view → Reports**, create an immutable current report and open any historical snapshot.
+1. Open `/setup`, choose subjects and goals, and create a learner—or run `pnpm seed` for the demo. Starting claims select diagnostics but never count as mastery.
+2. In **Adult view → Learning roadmap**, inspect each subject graph: completed concepts, the current frontier, upcoming nodes, and extra-practice/review branches. Introduce, prioritize, defer, or restore concepts with an adult note.
+3. In **Child view → My learning map**, the child sees completed stops, “you are here,” a small next horizon, and encouraging practice side paths. Open recommended work from the shelf.
+4. When a roadmap reaches its approved frontier, ask Claude to propose an extension with `/child-learning-evolve-path`. Review and activate it in **Adult view → Curriculum**; Claude cannot approve its own proposal.
+5. For paper work, choose **Use a paper worksheet**, then select **Print worksheet** in the browser. A completed paper page can be photographed and stored for adult review.
+6. In **Adult view → Reviews**, confirm subjective/photo evidence before it affects progress.
+7. In **Adult view → Worksheets**, open prior worksheets, child responses, correct answers or rubrics, and per-item rationale.
+8. In **Adult view → Reports**, create an immutable current report and open any historical snapshot.
 
 The application has no cloud model integration. Digital answers are scored deterministically; photo and open-ended work remains review-gated. Claude Code is optional and operates through the local plugin/MCP boundary.
 
-## Capability-based learning path
+## Adaptive learning graphs
 
-Setup can begin from an adult-reported snapshot of what the child can do today. The system uses that snapshot only to choose starting diagnostic activities; progress and prerequisite mastery still come exclusively from confirmed assessment evidence.
+Setup begins from subjects, goals, interests, accommodations, and an adult-reported snapshot of what the child can do today. The system uses that context only to place starting diagnostics; progress and prerequisite completion come exclusively from confirmed evidence.
 
-The runtime loads the versioned concept graph from `curriculum/*.json`. Each concept declares ordered learning stages, delivery mode, evidence purpose, readiness relationships, and the generator used to materialize work.
+The runtime composes immutable curriculum pack revisions into a validated graph. Subjects and stages are registry-backed strings rather than closed grade lists. Each concept declares ordered stages, typed prerequisite/readiness/extension edges, supported activity primitives, evidence rules, and a registered generator/evaluator/renderer. The original concrete → pictorial → abstract paths remain valid, while later or custom curricula can use stages such as guided, visual, planned, and independent.
 
-- **Concrete:** introduce the idea with real objects, movement, sorting, or spoken language.
-- **Pictorial:** connect the same idea to pictures and structured practice.
-- **Abstract:** use words and symbols only when the child has enough prior evidence.
+Every learner receives a per-subject graph projection. Confirmed work marks completed/current nodes, exposes approved successors, materializes work at the frontier, and adds extra-practice or review side branches after repeated confirmed difficulty. Side branches rejoin their core concept and never pretend to be prerequisite mastery. When no approved successor exists, the adult view reports that the graph is ready to expand.
 
-Locked and deferred work is excluded before recommendation scoring and is not exposed through child routes. Confirmed evidence can unlock and materialize the next stage automatically. An adult can open an early concrete introduction, prioritize eligible work, defer a concept, or clear a directive from the Learning path page. These actions are append-only and never masquerade as mastery.
+Curriculum revisions are immutable and content-addressed. Claude can propose original nodes, edges, and templates through MCP, but deterministic validation rejects duplicates, dangling references, cycles, unsupported activity kinds, missing answers, or removal of historical concept IDs. An adult must explicitly approve and activate a proposal. Rollback is another activation event; old graphs, activities, evidence, and reports remain reconstructable.
 
-The child shelf supports See all, By subject, and By concept views. Adults can open Worksheet history to see every prior submission, the original worksheet, the adult answer guide, the child's responses, and per-item evaluation rationale. Immutable progress reports include recent worksheet results and links back to this review trail.
+The child shelf still supports See all, By subject, and By concept. **My learning map** shows only completed, current, and near-horizon nodes in encouraging language. The adult roadmap includes the full graph, evidence reasons, directives, branches, and curriculum revision controls. Worksheet history and reports continue linking back to exact immutable artifacts.
 
 ## Demonstration scenario
 
@@ -177,9 +179,9 @@ pnpm plugin:validate
 pnpm plugin:build
 ```
 
-The Claude target is written to `dist/plugin/claude`. Omniplug keeps the portable entry-point sources under `plugin/commands/`, but this plugin opts into Claude skill emission: each `/kindergarten-*` entry point is generated under `skills/<name>/SKILL.md` as a manual, user-invocable skill. These entry skills are not selected automatically by the model. The existing 13 reusable capability skills remain available for skill-to-skill and model-directed use.
+The Claude target is written to `dist/plugin/claude`. Omniplug keeps portable entry-point sources under `plugin/commands/`, but this plugin emits each `/child-learning-*` entry point under `skills/<name>/SKILL.md` as a manual, user-invocable skill. These entry skills are not selected automatically by the model. Reusable capability skills—including `evolve-learning-graph`—remain available for skill-to-skill and model-directed use.
 
-`pnpm plugin:build` clears only the generated Claude target before rebuilding and verifies that all 10 entry skills and 13 reusable skills are present without a legacy generated `commands/` directory.
+`pnpm plugin:build` clears only the generated Claude target before rebuilding and verifies all 11 entry skills, reusable skills, the `child-learning` manifest, and the single `child-learning-local` MCP bundle without a legacy generated `commands/` directory.
 
 Preview a project-scoped installation without changing a project:
 
@@ -188,11 +190,13 @@ go run github.com/asingamaneni/omniplug/cmd/omniplug@1da68b18cfbf74d7cdbc0ebae94
   install -s plugin --scope project --project-dir /path/to/project --target claude --dry-run
 ```
 
-If this checkout was installed with Learning Worktable plugin version 0.1.x, remove its old plugin-owned command output once before reinstalling. Omniplug installation is additive and does not remove paths that disappear from a newer bundle. Delete only this plugin's directory—not a shared `.claude/commands` directory:
+The public plugin namespace changed from `kindergarten-learning` to `child-learning`. Omniplug installation is additive, so an existing project-scoped installation must remove the entire old plugin-owned root once before installing the new plugin. Do not delete shared `.claude/commands` or `.claude/skills` directories:
 
 ```sh
-rm -rf .claude/plugins/kindergarten-learning/commands
+rm -rf .claude/plugins/kindergarten-learning
 ```
+
+Existing learner databases and artifacts are not moved or rewritten. The old `KINDERGARTEN_*` environment variables and read-only `kindergarten://` MCP resource URIs remain compatibility fallbacks, but old `/kindergarten-*` slash entries are intentionally not duplicated.
 
 Remove `--dry-run` when ready to install into the current checkout:
 
@@ -210,7 +214,7 @@ This integration runs in **Claude Code**, not directly in the Claude.ai website 
 
 ### Choose an installation mode
 
-The project-scoped Omniplug installation above exposes the flat user-invocable skill names documented in this repository, such as `/kindergarten-start`.
+The project-scoped Omniplug installation above exposes the flat user-invocable skill names documented in this repository, such as `/child-learning-start`.
 
 For a temporary session without installing generated files into the project, launch the compiled target directly:
 
@@ -218,7 +222,7 @@ For a temporary session without installing generated files into the project, lau
 claude --plugin-dir "$PWD/dist/plugin/claude"
 ```
 
-Native plugin-directory skills are normally namespaced, for example `/kindergarten-learning:kindergarten-start`. Run `/help` after launch and use the exact names Claude Code displays.
+Native plugin-directory skills are normally namespaced, for example `/child-learning:child-learning-start`. Run `/help` after launch and use the exact names Claude Code displays.
 
 ### Start the application and Claude
 
@@ -243,31 +247,31 @@ The plugin starts its bundled local stdio MCP server automatically. Do **not** a
 With a project-scoped installation:
 
 ```text
-/kindergarten-start <learner-id-or-name>
+/child-learning-start <learner-id-or-name>
 ```
 
 With `--plugin-dir`:
 
 ```text
-/kindergarten-learning:kindergarten-start <learner-id-or-name>
+/child-learning:child-learning-start <learner-id-or-name>
 ```
 
 A learner created at `/setup` has an ID in the resulting child URL. The start skill can also list local learners and load the selected learner's reported starting context, confirmed evidence, available concepts, representation stage, due reviews, and recent work.
 
 ### Generate and store new material
 
-Start the learner first so subsequent entry skills have the correct local context. Examples below use the flat project-scoped skill names; add the `kindergarten-learning:` namespace when using `--plugin-dir`.
+Start the learner first so subsequent entry skills have the correct local context. Examples below use the flat project-scoped skill names; add the `child-learning:` namespace when using `--plugin-dir`.
 
 Create focused practice:
 
 ```text
-/kindergarten-create-practice math math.addition-within-10 2 5
+/child-learning-create-practice math math.addition-within-10 2 5
 ```
 
 Create a picture-centered activity:
 
 ```text
-/kindergarten-create-picture-activity math math.subtraction-within-10 practice 2
+/child-learning-create-picture-activity math math.subtraction-within-10 practice 2
 ```
 
 Parents can also use natural language after starting the learner:
@@ -290,6 +294,16 @@ learner. Include one due review and avoid concepts practiced recently.
 ```
 
 Claude uses the local application to validate known answers, enforce concept-stage availability, persist the exact `ActivitySpec`, and return real artifact/activity IDs. Claude wording may personalize the material, but deterministic application code owns arithmetic, answer keys, scoring, progression, and storage.
+
+### Evolve a subject roadmap
+
+When the current approved graph ends, a parent adds a goal, or confirmed work repeatedly needs another route:
+
+```text
+/child-learning-evolve-path <learner-id> <subject> <goal-or-frontier>
+```
+
+The skill reads the learner's current graph and stores a validated immutable proposal. It cannot activate its own proposal. Review the graph diff in `http://127.0.0.1:3000/adult/<learner-id>/curriculum`, add an adult note, approve or reject it, and activate only an approved revision. Every prior roadmap and activity remains linked to the revision used when it was created.
 
 ### Open generated material
 
@@ -315,7 +329,7 @@ Digital submissions are scored deterministically by the application. For paper w
 For an existing stored submission:
 
 ```text
-/kindergarten-check-work <activity-id> <submission-id>
+/child-learning-check-work <activity-id> <submission-id>
 ```
 
 Do not pass a new local photo path to this skill in the current release; upload the photo through the web interface first so it receives a stored submission ID and immutable lineage.
@@ -323,19 +337,19 @@ Do not pass a new local photo path to this skill in the current release; upload 
 Inspect confirmed progress:
 
 ```text
-/kindergarten-progress <learner-id> <evaluation-id>
+/child-learning-progress <learner-id> <evaluation-id>
 ```
 
 Explain one confirmed mistake:
 
 ```text
-/kindergarten-explain-mistakes <evaluation-id> <item-id> child
+/child-learning-explain-mistakes <evaluation-id> <item-id> child
 ```
 
 Generate a new immutable adult report:
 
 ```text
-/kindergarten-report <learner-id> 30-days
+/child-learning-report <learner-id> 30-days
 ```
 
 Reports can also be created and opened at:
@@ -346,18 +360,42 @@ http://127.0.0.1:3000/adult/<learner-id>/reports
 
 ### Parent skill reference
 
-| Purpose | Project-scoped skill |
-|---|---|
-| Start or resume | `/kindergarten-start` |
-| Generate structured practice | `/kindergarten-create-practice` |
-| Generate picture material | `/kindergarten-create-picture-activity` |
-| Check stored work | `/kindergarten-check-work` |
-| Explain a confirmed mistake | `/kindergarten-explain-mistakes` |
-| Inspect/apply confirmed progress | `/kindergarten-progress` |
-| Create an adult report | `/kindergarten-report` |
-| Run repository verification | `/kindergarten-verify` |
+The Claude build emits all 11 canonical entry points as manual skills. Arguments are positional and are passed to the underlying reusable skill through `$ARGUMENTS`.
 
-For `--plugin-dir`, prefix these skill names with `kindergarten-learning:`, and use `/help` as the authoritative list.
+| Project-scoped entry skill | Arguments | What it does |
+|---|---|---|
+| `/child-learning-start` | `[student-id-or-name]` | Start or resume a learner session, load real local state, and suggest the next action without changing progress. |
+| `/child-learning-demo` | `[student-id]` | Walk through the canonical learning loop using actual local artifacts and results. |
+| `/child-learning-create-practice` | `[subject] [concept] [difficulty] [question-count]` | Create and persist validated practice at the learner's currently available stage. |
+| `/child-learning-create-picture-activity` | `[subject] [concept] [activity-type] [difficulty]` | Create an original validated printable activity whose pictures carry instructional meaning. |
+| `/child-learning-check-work` | `[activity-id] [submission-id]` | Evaluate stored work against its exact activity; deterministic checks remain in application code and uncertainty goes to adult review. |
+| `/child-learning-explain-mistakes` | `[evaluation-id] [item-id] [audience]` | Explain one confirmed mistake safely without exposing hidden answers. |
+| `/child-learning-progress` | `[student-id] [evaluation-id]` | Apply confirmed evidence through the deterministic progression policy. |
+| `/child-learning-report` | `[student-id] [time-window]` | Create and store an immutable adult report from confirmed evidence. |
+| `/child-learning-add-concept` | `[subject] [concept] [objectives] [prerequisites]` | Propose and validate an original curriculum concept for explicit adult approval. |
+| `/child-learning-evolve-path` | `[student-id] [subject] [goal-or-frontier]` | Store an evidence-aware graph extension proposal, then stop for adult review and activation. |
+| `/child-learning-verify` | `[scope]` | Run non-destructive plugin and learning-contract verification. |
+
+A few additional examples:
+
+```text
+/child-learning-demo student-demo-ava
+/child-learning-add-concept social-studies local-history "Build a simple timeline" "social-studies.communities"
+/child-learning-verify all
+```
+
+For `--plugin-dir`, prefix these names with `child-learning:`—for example, `/child-learning:child-learning-demo student-demo-ava`. Run `/help` in Claude Code for the authoritative names exposed by the current installation.
+
+The entry skills delegate to 14 reusable capabilities. These are implementation building blocks that Claude may select or one entry skill may call; parents normally begin with the `/child-learning-*` entries above.
+
+| Capability area | Reusable skills |
+|---|---|
+| Activity creation | `create-practice`, `create-picture-activity`, `create-visual-assets` |
+| Adaptation and review | `adjust-difficulty`, `practice-weak-area`, `review-old-topic`, `recommend-next-activity` |
+| Evidence and reporting | `check-work`, `track-progress`, `explain-mistakes`, `generate-progress-report` |
+| Curriculum and quality | `author-curriculum`, `evolve-learning-graph`, `audit-learning-loop` |
+
+`author-curriculum` and `evolve-learning-graph` may validate and store proposals, but they cannot approve or activate their own curriculum changes. `check-work` operates on a submission already stored by the application; upload new paper or image work through the web interface first.
 
 ### Authentication and data boundary
 
@@ -375,8 +413,8 @@ The repository currently contains canonical Omniplug source and a generated loca
 
 The canonical plugin provides:
 
-- 13 reusable capability skills, including practice generation, visual activities, work checking, progress, recommendations, reports, and curriculum authoring.
-- 10 manual, user-invocable `/kindergarten-*` entry skills generated from portable canonical command sources.
+- 14 reusable capability skills, including practice generation, visual activities, work checking, progress, recommendations, reports, and curriculum authoring.
+- 11 manual, user-invocable `/child-learning-*` entry skills generated from portable canonical command sources.
 - Read-oriented curriculum, assessment, and child-experience agents.
 - Safe session/verification hooks.
 - A bundled local stdio MCP server that never calls the network or requests credentials.
@@ -384,8 +422,9 @@ The canonical plugin provides:
 ## Verification
 
 ```sh
-pnpm verify:fast   # lint, typecheck, unit/integration tests, Next build, Omniplug validation
-pnpm verify        # verify:fast plus Playwright browser/PDF tests
+pnpm verify:fast      # lint, typecheck, unit/integration tests, Next build, and Claude plugin build/output checks
+pnpm plugin:validate  # validate the canonical Omniplug source for Claude
+pnpm verify           # verify:fast plus Playwright browser/PDF tests
 ```
 
 The test corpus covers contracts, generated-answer consistency, progression boundaries, child answer privacy, SQLite immutability, idempotency, artifact hashes/lineage, MCP review/override flows, worksheet pagination, physical Letter PDFs, and browser workflows.
@@ -398,16 +437,16 @@ pnpm exec playwright install chromium
 
 ### Troubleshooting
 
-- **Port 3000 is busy:** run `pnpm --filter @kindergarten/web exec next dev --webpack --port 3100` and open the printed URL.
+- **Port 3000 is busy:** run `pnpm --filter @child-learning/web exec next dev --webpack --port 3100` and open the printed URL.
 - **SQLite native module did not build:** confirm Node 22+, run `pnpm install` again, and verify pnpm honored the repository's approved `better-sqlite3` build script.
 - **The demo profile is missing:** run `pnpm seed`. Normal read requests deliberately never seed or modify data.
-- **A child cannot open an activity:** inspect **Adult view → Learning path**. The concept may be locked, deferred, or waiting for an earlier representation stage. An adult can open a concrete introduction without recording false mastery.
+- **A child cannot open an activity:** inspect **Adult view → Learning roadmap**. The concept may be locked, deferred, tied to an inactive curriculum revision, or waiting for an earlier learning stage. An adult can open an early introduction without recording false mastery.
 - **Photo work does not affect progress:** this is intentional. Open **Adult view → Reviews** and confirm the evidence with a score and rationale.
 - **Plugin changes are not visible:** rerun `pnpm plugin:build`, then reinstall the project-scoped Claude target.
 
 ## Safety and privacy
 
-- Child-facing data omit both `answerSpecs` and hidden item answer fields.
+- Child-facing activity data use an explicit allowlist: answer contracts, scoring policy, curriculum revision internals, generator seeds, adult rationale, and provenance notes are omitted along with hidden item answers.
 - Known facts are never delegated to Claude.
 - Claude Code-assisted image interpretation is stored as a proposal and cannot change progress until an adult confirms it.
 - Photo uploads remain local and are marked as requiring review; the MVP does not claim handwriting recognition.

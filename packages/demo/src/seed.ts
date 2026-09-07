@@ -1,8 +1,8 @@
-import { closeDatabase, LearningRepository, migrateDatabase, openDatabase } from "@kindergarten/database";
-import { deriveConceptAvailability, generateAdditionWithinTen, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation, projectProgression, projectStudentConceptState, progressEventsFromEvaluation, rankRecommendations, DEFAULT_PROGRESSION_POLICY, scoreSubmission } from "@kindergarten/domain";
-import { ActivitySpecSchema } from "@kindergarten/contracts";
-import type { ActivitySpec, ProgressEvent, Recommendation, ReportSnapshot, StudentConceptState, Submission } from "@kindergarten/contracts";
-import { ArtifactStore, type StoredArtifact } from "@kindergarten/storage";
+import { closeDatabase, LearningRepository, migrateDatabase, openDatabase } from "@child-learning/database";
+import { deriveConceptAvailability, generateAdditionWithinTen, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation, projectProgression, projectStudentConceptState, progressEventsFromEvaluation, rankRecommendations, DEFAULT_PROGRESSION_POLICY, scoreSubmission } from "@child-learning/domain";
+import { ActivitySpecSchema } from "@child-learning/contracts";
+import type { ActivitySpec, ProgressEvent, Recommendation, ReportSnapshot, StudentConceptState, Submission } from "@child-learning/contracts";
+import { ArtifactStore, type StoredArtifact } from "@child-learning/storage";
 
 export interface DemoSeedOptions { databasePath?: string; artifactsDir?: string; now?: string; }
 export interface DemoSeedResult { studentId: string; activityIds: string[]; observationScores: number[]; finalStep: number; finalDecision: string; artifacts: StoredArtifact[]; }
@@ -46,7 +46,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
   try {
     migrateDatabase(db);
     const repo = new LearningRepository(db, () => now);
-    repo.saveStudent({ id: IDS.student, displayName: "Ava Demo", grade: "Kindergarten", metadata: { demo: true } });
+    repo.saveStudent({ id: IDS.student, displayName: "Ava Demo", grade: "School-age, mixed level", metadata: { demo: true } });
     repo.saveCurriculumMetadata({ id: IDS.mathCurriculum, subject: "math", conceptId: IDS.concept, title: "Addition within 10", metadata: { demo: true } });
     repo.saveCurriculumMetadata({ id: IDS.englishCurriculum, subject: "english", conceptId: IDS.englishConcept, title: "Beginning letter sounds", metadata: { demo: true } });
     const artifacts: StoredArtifact[] = [];
@@ -151,7 +151,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       { submissionId: englishSubmission.id, activityId: englishActivity.id, title: englishActivity.title, subject: englishActivity.subject, conceptId: englishActivity.conceptId, submittedAt: now, evaluationId: englishEvaluation.id, score: englishEvaluation.score, status: englishEvaluation.status, correctItems: englishEvaluation.items.filter((item) => item.score === 1).length, totalItems: englishActivity.items.length },
     ];
     if (!db.prepare("SELECT 1 FROM report_snapshots WHERE id = ?").get("report-demo-1")) {
-      const report: ReportSnapshot = { id: "report-demo-1", studentId: IDS.student, asOf: now, conceptStates: [mathState, englishState], evidence: [{ conceptId: IDS.concept, recentScores: scores, trend: "up", evidenceCount: 4 }, { conceptId: IDS.englishConcept, recentScores: englishState.recentScores, trend: "insufficient-data", evidenceCount: 1 }], strengths: learningPath.filter((concept) => concept.status === "secure").map((concept) => concept.conceptId), needsPractice: [], recommendedNextSteps: [recommendation.conciseReason], worksheetSummaries, learningPath, recommendation, summary: `Addition observations: ${scores.map((score) => score.toFixed(2)).join(", ")}. The final comparable streak advances one step. ${recommendation.conciseReason}` };
+      const report: ReportSnapshot = { id: "report-demo-1", studentId: IDS.student, asOf: now, conceptStates: [mathState, englishState], evidence: [{ conceptId: IDS.concept, recentScores: scores, trend: "up", evidenceCount: 4 }, { conceptId: IDS.englishConcept, recentScores: englishState.recentScores, trend: "insufficient-data", evidenceCount: 1 }], strengths: learningPath.filter((concept) => concept.status === "secure").map((concept) => concept.conceptId), needsPractice: [], recommendedNextSteps: [recommendation.conciseReason], worksheetSummaries, learningPath, roadmapRevisionIds: [], recommendation, summary: `Addition observations: ${scores.map((score) => score.toFixed(2)).join(", ")}. The final comparable streak advances one step. ${recommendation.conciseReason}` };
       const reportArtifact = await saveArtifact(report, { source: "demo-report", kind: "report-snapshot" });
       for (const evaluationArtifact of [...mathEvaluationArtifacts, englishEvaluationArtifact]) {
         await store.addLineageEdge(evaluationArtifact.id, reportArtifact.id, "supports");

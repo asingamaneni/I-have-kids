@@ -1,7 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
-const projectRoot = resolve(process.env.KINDERGARTEN_PROJECT_ROOT ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+const projectRoot = resolve(process.env.CHILD_LEARNING_PROJECT_ROOT ?? process.env.KINDERGARTEN_PROJECT_ROOT ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
 const commandSourceRoot = resolve(projectRoot, "plugin/commands");
 const skillSourceRoot = resolve(projectRoot, "plugin/skills");
 const outputRoot = resolve(projectRoot, "dist/plugin/claude");
@@ -40,6 +40,8 @@ const commandFiles = (await readdir(commandSourceRoot, { withFileTypes: true }))
   .map((entry) => entry.name)
   .sort();
 
+if (commandFiles.length !== 11 || commandFiles.some((name) => !name.startsWith("child-learning-"))) failures.push("Expected exactly 11 child-learning entry skill sources");
+
 for (const commandFile of commandFiles) {
   const name = basename(commandFile, ".md");
   const source = await readFile(resolve(commandSourceRoot, commandFile), "utf8");
@@ -69,6 +71,10 @@ for (const name of reusableSkillNames) {
 }
 
 if (await exists(resolve(outputRoot, "commands"))) failures.push("Generated Claude output still contains the legacy commands/ directory");
+const manifest = JSON.parse(await readFile(resolve(outputRoot, ".claude-plugin/plugin.json"), "utf8")) as { name?: string; version?: string };
+if (manifest.name !== "child-learning" || manifest.version !== "0.3.0") failures.push("Generated plugin manifest must identify child-learning version 0.3.0");
+const mcpConfig = await readFile(resolve(outputRoot, ".mcp.json"), "utf8");
+if (!mcpConfig.includes("child-learning-local") || !mcpConfig.includes("child-learning-mcp.mjs")) failures.push("Generated MCP config must use the child-learning server and bundle names");
 
 if (failures.length > 0) {
   throw new Error(`Claude plugin output verification failed:\n- ${failures.join("\n- ")}`);

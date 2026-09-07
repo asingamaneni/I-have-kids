@@ -53,16 +53,37 @@ describe("local MCP service", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
+  it("prefers child-learning environment names and preserves legacy fallbacks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "child-learning-env-"));
+    try {
+      const preferred = createLocalService({ projectRoot: root, env: { CHILD_LEARNING_DB_PATH: "preferred/learning.db", CHILD_LEARNING_ARTIFACTS_DIR: "preferred/artifacts", KINDERGARTEN_DB_PATH: "legacy/learning.db", KINDERGARTEN_ARTIFACTS_DIR: "legacy/artifacts" } });
+      expect(preferred.demoStatus()).toMatchObject({ databasePath: join(root, "preferred/learning.db"), artifactsDir: join(root, "preferred/artifacts") });
+      preferred.close();
+      const legacy = createLocalService({ projectRoot: root, env: { KINDERGARTEN_DB_PATH: "legacy/learning.db", KINDERGARTEN_ARTIFACTS_DIR: "legacy/artifacts" } });
+      expect(legacy.demoStatus()).toMatchObject({ databasePath: join(root, "legacy/learning.db"), artifactsDir: join(root, "legacy/artifacts") });
+      legacy.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("uses adult-reported capabilities to choose diagnostics without recording mastery", async () => {
     await withService(async (service) => {
       const student = service.createStudent({ id: "student-baseline", displayName: "Baseline Learner", reportedCapabilities: ["math.adds-with-symbols"], baselineNotes: "Builds number stories with blocks.", baselineStatus: "diagnostic-in-progress" });
       expect(student).toMatchObject({ reportedCapabilities: ["math.adds-with-symbols"], baselineStatus: "diagnostic-in-progress" });
       expect(service.getProgress(student.id).states).toHaveLength(0);
-      service.applyLearningDirective({ id: "baseline-directive", studentId: student.id, conceptId: "math.addition-within-10", action: "assess", reason: "Verify the reported capability.", authorId: "adult", requestedStage: "abstract" });
+      await service.applyLearningDirective({ id: "baseline-directive", studentId: student.id, conceptId: "math.addition-within-10", action: "assess", reason: "Verify the reported capability.", authorId: "adult", requestedStage: "abstract" });
       const path = service.getLearningPath(student.id) as { availability: Array<{ conceptId: string; status: string; currentStage: string; priority: number; reason: string }> };
       expect(path.availability.find((concept) => concept.conceptId === "math.addition-within-10")).toMatchObject({ status: "available", currentStage: "abstract", priority: 5 });
       expect(path.availability.find((concept) => concept.conceptId === "math.addition-within-10")?.reason).toContain("does not count as mastery");
       expect(service.getProgress(student.id).states).toHaveLength(0);
+    });
+  });
+
+  it("removes expired adult directives from active learning and recommendation context", async () => {
+    await withService(async (service) => {
+      service.createStudent({ id: "expired-directive-student", displayName: "Expired Directive Learner", selectedSubjects: ["math"] });
+      const result = await service.applyLearningDirective({ id: "expired-priority", studentId: "expired-directive-student", conceptId: "math.counting-to-10", action: "prioritize", reason: "A past short-term goal.", authorId: "adult", expiresAt: "2026-01-31T00:00:00.000Z" });
+      expect((result.learningPath as { directives: unknown[] }).directives).toHaveLength(0);
+      expect((service.getLearningPath("expired-directive-student") as { directives: unknown[] }).directives).toHaveLength(0);
     });
   });
 
@@ -96,6 +117,14 @@ describe("local MCP service", () => {
       expect(result.evaluation).toHaveProperty("score", 1);
       expect(service.getProgress("student-demo-ava", generated.conceptId).history.length).toBeGreaterThan(0);
       await expect(service.validateAndStoreActivity({ ...generated, answerSpecs: { [generated.items[0]!.id]: { type: "integer", expected: 999 } } })).rejects.toThrow(/answerSpecs|answer does not match/);
+    });
+  });
+
+  it("rejects submissions for activities outside the learner's current shelf", async () => {
+    await withService(async (service) => {
+      await service.initializeDemo("2026-02-01T00:00:00.000Z");
+      await expect(service.recordDigitalSubmission({ id: "locked-submission", activityId: "activity-subtraction-01", studentId: "student-demo-ava", responses: [] })).rejects.toThrow(/not currently available/);
+      expect(service.db.prepare("SELECT 1 FROM submissions WHERE id = ?").get("locked-submission")).toBeUndefined();
     });
   });
 
@@ -144,6 +173,82 @@ describe("local MCP service", () => {
       expect(rejected.gradedStateChanged).toBe(false);
       expect((after.history.at(-1) as { event_type: string; comparable: number }).event_type).toBe("review");
       expect((after.history.at(-1) as { comparable: number }).comparable).toBe(0);
+    });
+  });
+
+  it("requires adult approval before activating an open-ended subject graph", async () => {
+    await withService(async (service) => {
+      service.createStudent({ id: "student-roadmap", displayName: "Roadmap Learner", selectedSubjects: ["civics"] });
+      const proposal = await service.proposeCurriculumRevision({ id: "proposal-communities", revision: { schemaVersion: "2.0", id: "communities-r1", packId: "communities", revision: 1, title: "Communities", description: "An original civics path.", subjects: [{ id: "civics", title: "Civics", description: "People, places, and communities." }], concepts: [{ id: "civics.communities", subject: "civics", title: "Communities", description: "Describe what communities share.", step: 0, activityKinds: ["selected-response"], templateIds: ["civics-communities-guided"], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }], edges: [], activityTemplates: [{ id: "civics-communities-guided", conceptId: "civics.communities", stage: "guided", title: "Communities", objectives: ["Identify something communities share."], instructions: ["Read the question. Choose one answer."], items: [{ id: "community-choice", conceptId: "civics.communities", kind: "selected-response", prompt: "Which place can be part of a community?", choices: ["a library", "the moon"], correctChoice: "a library", difficulty: 2 }], answerSpecs: { "community-choice": { type: "choice", expected: "a library" } }, scoring: { method: "exact" } }], provenance: { origin: "original" }, createdBy: "adult-author", createdAt: "2026-02-01T00:00:00.000Z" }, rationale: "Add the learner's requested civics subject.", basedOnRevisionIds: [], affectedStudentIds: ["student-roadmap"], createdBy: "adult-author" });
+      expect((service.listCurriculum().subjects as Array<{ id: string }>).some((subject) => subject.id === "civics")).toBe(false);
+      await expect(service.activateCurriculumRevision({ proposalId: "proposal-communities", actorId: "adult", reason: "Too early" })).rejects.toThrow(/approval/);
+      service.decideCurriculumRevision({ proposalId: "proposal-communities", decision: "approved", reviewerId: "adult", note: "Original and appropriate." });
+      await service.activateCurriculumRevision({ proposalId: "proposal-communities", actorId: "adult", reason: "Add the requested subject." });
+      const roadmaps = service.getLearningRoadmaps("student-roadmap", true) as { roadmaps: Array<{ subject: string; nodes: unknown[] }> };
+      expect(roadmaps.roadmaps).toEqual([expect.objectContaining({ subject: "civics" })]);
+      expect(roadmaps.roadmaps[0]?.nodes).toHaveLength(1);
+      const path = service.getLearningPath("student-roadmap") as { availability: Array<{ subject: string }> };
+      expect(path.availability.every((concept) => concept.subject === "civics")).toBe(true);
+      await expect(service.applyLearningDirective({ id: "bad-stage", studentId: "student-roadmap", conceptId: "civics.communities", action: "introduce", requestedStage: "missing-stage", reason: "Invalid stage test", authorId: "adult" })).rejects.toThrow(/does not define/);
+      const activity = service.generateActivity({ studentId: "student-roadmap", conceptId: "civics.communities", representationStage: "guided", seed: 8 });
+      expect(activity).toMatchObject({ subject: "civics", curriculumRef: { packId: "communities", revisionId: "communities-r1" } });
+      expect(await service.validateAndStoreActivity(activity)).toHaveProperty("activity.id", activity.id);
+      expect(proposal.validation).toMatchObject({ valid: true, addedConceptIds: ["civics.communities"] });
+    });
+  });
+
+  it("rolls a curriculum pack back to a previously active immutable revision", async () => {
+    await withService(async (service) => {
+      service.createStudent({ id: "history-student", displayName: "History Learner", selectedSubjects: ["history"] });
+      const firstRevision = {
+        schemaVersion: "2.0" as const,
+        id: "history-r1",
+        packId: "history-path",
+        revision: 1,
+        title: "History path",
+        description: "An original history path.",
+        subjects: [{ id: "history", title: "History", description: "People and events over time." }],
+        concepts: [{ id: "history.timelines", subject: "history", title: "Timelines", description: "Place events in time order.", step: 0, activityKinds: ["ordering" as const], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }],
+        edges: [],
+        provenance: { origin: "original" as const },
+        createdBy: "adult-author",
+        createdAt: "2026-02-01T00:00:00.000Z"
+      };
+      await service.proposeCurriculumRevision({ id: "history-proposal-r1", revision: firstRevision, rationale: "Add history.", basedOnRevisionIds: [], affectedStudentIds: [], createdBy: "adult-author" });
+      service.decideCurriculumRevision({ proposalId: "history-proposal-r1", decision: "approved", reviewerId: "adult", note: "Approved." });
+      await service.activateCurriculumRevision({ proposalId: "history-proposal-r1", actorId: "adult", reason: "Start the path." });
+      const firstActivity = {
+        schemaVersion: "1.0" as const,
+        id: "history-r1-activity",
+        studentId: "history-student",
+        subject: "history",
+        conceptId: "history.timelines",
+        title: "Timeline practice",
+        representationStage: "guided",
+        deliveryMode: "guided-screen",
+        evidencePurpose: "formative" as const,
+        curriculumVersion: "history-r1",
+        curriculumRef: { packId: "history-path", revisionId: "history-r1", nodeRevisionId: "history-r1:history.timelines" },
+        items: [{ id: "history-item", conceptId: "history.timelines", kind: "ordering" as const, prompt: "Put the events in order.", options: ["first", "second"], correctOrder: [0, 1] }],
+        answerSpecs: { "history-item": { type: "sequence" as const, expected: [0, 1] } },
+        scoring: { method: "sequence" as const },
+        comparabilityKey: "history|history.timelines|stage:guided|purpose:formative|difficulty:0|activity:practice|items:1|support:on|kinds:ordering",
+        createdAt: "2026-02-01T00:00:00.000Z"
+      };
+      await service.validateAndStoreActivity(firstActivity);
+
+      const secondRevision = { ...firstRevision, id: "history-r2", revision: 2, title: "Expanded history path" };
+      await service.proposeCurriculumRevision({ id: "history-proposal-r2", revision: secondRevision, rationale: "Expand history.", basedOnRevisionIds: [firstRevision.id], affectedStudentIds: [], createdBy: "adult-author" });
+      service.decideCurriculumRevision({ proposalId: "history-proposal-r2", decision: "approved", reviewerId: "adult", note: "Approved." });
+      const activated = await service.activateCurriculumRevision({ proposalId: "history-proposal-r2", actorId: "adult", reason: "Use revision two." });
+      expect(activated.activeRevisionIds).toContain("history-r2");
+      expect(() => service.getActivity(firstActivity.id)).toThrow(/not currently available/);
+
+      const rolledBack = await service.activateCurriculumRevision({ revisionId: "history-r1", action: "rollback", actorId: "adult", reason: "Restore revision one." });
+      expect(rolledBack.activation).toMatchObject({ action: "rollback", revisionId: "history-r1" });
+      expect(rolledBack.activeRevisionIds).toContain("history-r1");
+      expect(rolledBack.activeRevisionIds).not.toContain("history-r2");
+      expect(service.getActivity(firstActivity.id)).toHaveProperty("id", firstActivity.id);
     });
   });
 

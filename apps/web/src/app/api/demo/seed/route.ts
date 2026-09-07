@@ -1,4 +1,4 @@
 import { NextResponse } from "next/server";
-import { seedDemo } from "@kindergarten/demo";
-import type { DemoSeedOptions } from "@kindergarten/demo";
-export async function POST() { try { const options: DemoSeedOptions = {}; if (process.env.LEARNING_WORKTABLE_DB) options.databasePath = process.env.LEARNING_WORKTABLE_DB; if (process.env.LEARNING_WORKTABLE_ARTIFACTS) options.artifactsDir = process.env.LEARNING_WORKTABLE_ARTIFACTS; const result = await seedDemo(options); return NextResponse.json({ ok: true, ...result }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Seed failed" }, { status: 500 }); } }
+import { seedDemo } from "@child-learning/demo";
+import type { DemoSeedOptions } from "@child-learning/demo";
+export async function POST() { try { const options: DemoSeedOptions = {}; const databasePath = process.env.CHILD_LEARNING_DB_PATH ?? process.env.KINDERGARTEN_DB_PATH ?? process.env.LEARNING_WORKTABLE_DB; const artifactsDir = process.env.CHILD_LEARNING_ARTIFACTS_DIR ?? process.env.KINDERGARTEN_ARTIFACTS_DIR ?? process.env.LEARNING_WORKTABLE_ARTIFACTS; if (databasePath) options.databasePath = databasePath; if (artifactsDir) options.artifactsDir = artifactsDir; const result = await seedDemo(options); return NextResponse.json({ ok: true, ...result }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Seed failed" }, { status: 500 }); } }

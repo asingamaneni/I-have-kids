@@ -11,4 +11,4 @@ test-results/
 *.tsbuildinfo
 .DS_Store
 .playwright-mcp/
-plugin/hooks/scripts/kindergarten-mcp.mjs
+plugin/hooks/scripts/child-learning-mcp.mjs

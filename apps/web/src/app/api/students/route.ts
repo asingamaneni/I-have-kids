@@ -1,4 +1,4 @@
-import { StudentCreateRequestSchema } from "@kindergarten/contracts";
+import { StudentCreateRequestSchema } from "@child-learning/contracts";
 import { createStudentWithStarter } from "@/lib/data";
 
 export async function POST(request: Request) {

@@ -3,13 +3,75 @@
   "subject": "reasoning",
   "title": "Capability-based reasoning pathway",
   "concepts": [
-    { "id": "reasoning.sequence-and-pattern", "subject": "reasoning", "title": "Sequences and patterns", "description": "Notice order, change, and repetition.", "step": 0, "prerequisites": [], "readinessConceptIds": [], "activityKinds": ["sequencing-reasoning"], "allowEarlyIntroduction": true, "stages": [
-      { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "reasoning.sequence-and-pattern", "minimumConfirmed": 1, "minimumAverage": 0 },
-      { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "reasoning.sequence-and-pattern", "minimumConfirmed": 3, "minimumAverage": 0.85 }
-    ] },
-    { "id": "reasoning.classify-and-explain", "subject": "reasoning", "title": "Classify and explain", "description": "Group familiar things and explain a reason.", "step": 1, "prerequisites": [], "readinessConceptIds": ["reasoning.sequence-and-pattern"], "activityKinds": ["sequencing-reasoning"], "allowEarlyIntroduction": true, "stages": [
-      { "stage": "concrete", "deliveryMode": "hands-on", "evidencePurpose": "exploration", "generator": "reasoning.classify-and-explain", "minimumConfirmed": 1, "minimumAverage": 0 },
-      { "stage": "pictorial", "deliveryMode": "worksheet", "evidencePurpose": "mastery", "generator": "reasoning.classify-and-explain", "minimumConfirmed": 3, "minimumAverage": 0.85 }
-    ] }
+    {
+      "id": "reasoning.sequence-and-pattern",
+      "subject": "reasoning",
+      "title": "Sequences and patterns",
+      "description": "Notice order, change, and repetition.",
+      "step": 0,
+      "prerequisites": [],
+      "readinessConceptIds": [],
+      "activityKinds": [
+        "sequencing-reasoning"
+      ],
+      "allowEarlyIntroduction": true,
+      "stages": [
+        {
+          "stage": "concrete",
+          "deliveryMode": "hands-on",
+          "evidencePurpose": "exploration",
+          "generator": "reasoning.sequence-and-pattern",
+          "minimumConfirmed": 1,
+          "minimumAverage": 0
+        },
+        {
+          "stage": "pictorial",
+          "deliveryMode": "worksheet",
+          "evidencePurpose": "mastery",
+          "generator": "reasoning.sequence-and-pattern",
+          "minimumConfirmed": 3,
+          "minimumAverage": 0.85
+        }
+      ],
+      "assessmentClaims": [
+        "reasoning.continues-patterns"
+      ]
+    },
+    {
+      "id": "reasoning.classify-and-explain",
+      "subject": "reasoning",
+      "title": "Classify and explain",
+      "description": "Group familiar things and explain a reason.",
+      "step": 1,
+      "prerequisites": [],
+      "readinessConceptIds": [
+        "reasoning.sequence-and-pattern"
+      ],
+      "activityKinds": [
+        "sequencing-reasoning"
+      ],
+      "allowEarlyIntroduction": true,
+      "stages": [
+        {
+          "stage": "concrete",
+          "deliveryMode": "hands-on",
+          "evidencePurpose": "exploration",
+          "generator": "reasoning.classify-and-explain",
+          "minimumConfirmed": 1,
+          "minimumAverage": 0
+        },
+        {
+          "stage": "pictorial",
+          "deliveryMode": "worksheet",
+          "evidencePurpose": "mastery",
+          "generator": "reasoning.classify-and-explain",
+          "minimumConfirmed": 3,
+          "minimumAverage": 0.85
+        }
+      ],
+      "assessmentClaims": [
+        "reasoning.sorts-and-explains"
+      ]
+    }
   ]
 }

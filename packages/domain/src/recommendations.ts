@@ -1,6 +1,6 @@
-import type { ActivitySpec, HumanOverride, Recommendation, StudentConceptState } from "@kindergarten/contracts";
+import type { ActivitySpec, HumanOverride, Recommendation, StudentConceptState } from "@child-learning/contracts";
 import { reviewSchedule, recentTrend } from "./progression.js";
-import type { ProgressEvent } from "@kindergarten/contracts";
+import type { ProgressEvent } from "@child-learning/contracts";
 
 export interface RecommendationContext {
   studentId: string;

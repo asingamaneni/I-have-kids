@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateAdditionWithinTen, generateAdditionWithinTwenty, generateEnglishBeginningSounds, generateSubtractionWithinTwenty, generateTeenNumbers, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoningClassifyAndExplain, generateReasoningSequenceAndPattern, generateScienceObserveAndDescribe, generateScienceSortLivingThings, generateScienceObservation, ACTIVITY_GENERATORS, scoreResponse, scoreSubmission, projectProgression, projectStudentConceptState, reviewSchedule, rankRecommendations } from "./index.js";
-import type { ProgressEvent, StudentConceptState } from "@kindergarten/contracts";
+import type { ProgressEvent, StudentConceptState } from "@child-learning/contracts";
 
 const state: StudentConceptState = { studentId: "s1", conceptId: "math.addition-within-10", step: 2, status: "learning", recentScores: [], updatedAt: "2024-01-01T00:00:00.000Z" };
 const event = (id: string, score: number, date: string): ProgressEvent => ({ id, studentId: "s1", conceptId: state.conceptId, evaluationId: `e-${id}`, score, eventType: "observation", comparable: true, evidenceStatus: "confirmed", occurredAt: date });

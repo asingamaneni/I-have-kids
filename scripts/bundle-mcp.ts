@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, mkdir, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-const projectRoot = resolve(process.env.KINDERGARTEN_PROJECT_ROOT ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+const projectRoot = resolve(process.env.CHILD_LEARNING_PROJECT_ROOT ?? process.env.KINDERGARTEN_PROJECT_ROOT ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
 const sourceRoots = ["contracts", "domain", "database", "storage", "demo", "mcp-server"].map((name) => resolve(projectRoot, "packages", name, "src"));
 async function collectTypeScriptFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -14,7 +14,7 @@ async function collectTypeScriptFiles(directory: string): Promise<string[]> {
 }
 const sourceFiles = (await Promise.all(sourceRoots.map(collectTypeScriptFiles))).flat().sort();
 const entry = resolve(projectRoot, "packages/mcp-server/src/server.ts");
-const outfile = resolve(projectRoot, "plugin/hooks/scripts/kindergarten-mcp.mjs");
+const outfile = resolve(projectRoot, "plugin/hooks/scripts/child-learning-mcp.mjs");
 
 await mkdir(dirname(outfile), { recursive: true });
 const sourceHash = createHash("sha256").update(Buffer.concat(await Promise.all(sourceFiles.map((file) => readFile(file))))).digest("hex");
@@ -27,12 +27,12 @@ await build({
   format: "esm",
   target: "node22",
   sourcemap: false,
-  banner: { js: `/* kindergarten-mcp-source-sha256: ${sourceHash} */` },
+  banner: { js: `/* child-learning-mcp-source-sha256: ${sourceHash} */` },
   plugins: [{
     name: "local-better-sqlite3",
     setup(pluginBuild) {
       pluginBuild.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: resolve(projectRoot, "packages/mcp-server/src/better-sqlite3-shim.ts") }));
-      pluginBuild.onResolve({ filter: /^@kindergarten\/demo$/ }, () => ({ path: resolve(projectRoot, "packages/demo/src/seed.ts") }));
+      pluginBuild.onResolve({ filter: /^@child-learning\/demo$/ }, () => ({ path: resolve(projectRoot, "packages/demo/src/seed.ts") }));
       // The demo package has a CLI entrypoint guard. Strip that side effect from
       // the embedded module so importing the MCP bundle never writes to stdout.
       pluginBuild.onLoad({ filter: /seed\.ts$/ }, async (args) => ({

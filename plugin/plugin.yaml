@@ -1,14 +1,14 @@
 apiVersion: omniplug/v1
-name: kindergarten-learning
-version: 0.2.0
-description: Local-first, evidence-aware kindergarten practice with visual activities and controlled progression.
+name: child-learning
+version: 0.3.0
+description: Local-first, evidence-aware learning roadmaps that grow across subjects with each child.
 author:
   name: Ashok Singamaneni
   url: https://github.com/asingamaneni
 license: MIT
 homepage: https://github.com/asingamaneni/I-have-kids
 repository: https://github.com/asingamaneni/I-have-kids
-keywords: [kindergarten, learning, local-first, visual-activities, progression]
+keywords: [child-learning, adaptive-roadmap, curriculum, local-first, visual-activities, progression]
 targetOptions:
   claude:
     commandEmission: skills

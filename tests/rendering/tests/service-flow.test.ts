@@ -34,7 +34,7 @@ describe("web application service flows", () => {
     try {
       service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "Kindergarten" });
       expect((service.getLearningPath("student-test") as { availability: Array<{ conceptId: string; status: string }> }).availability.find((concept) => concept.conceptId === "math.subtraction-within-10")?.status).toBe("locked");
-      service.applyLearningDirective({ id: "directive-test", studentId: "student-test", conceptId: "math.subtraction-within-10", action: "introduce", reason: "The child separates counters during play.", authorId: "adult-test", requestedStage: "concrete" });
+      await service.applyLearningDirective({ id: "directive-test", studentId: "student-test", conceptId: "math.subtraction-within-10", action: "introduce", reason: "The child separates counters during play.", authorId: "adult-test", requestedStage: "concrete" });
       const spec = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 91, studentId: "student-test", itemCount: 2, representationStage: "concrete" });
       const stored = await service.validateAndStoreActivity(spec);
       expect(spec).toMatchObject({ representationStage: "concrete", deliveryMode: "hands-on", evidencePurpose: "exploration" });

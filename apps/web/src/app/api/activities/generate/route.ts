@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ActivityGenerationRequestSchema } from "@kindergarten/contracts";
+import { ActivityGenerationRequestSchema } from "@child-learning/contracts";
 import { generateAndStoreActivity } from "@/lib/data";
 
 export async function POST(request: Request) {

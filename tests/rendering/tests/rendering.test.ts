@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ActivitySpecSchema, toChildActivitySpec } from "../../../packages/contracts/src/index.ts";
 import { generateAdditionWithinTen, generateAdditionWithinTwenty, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation } from "../../../packages/domain/src/index.ts";
 import { createElement } from "../../../packages/rendering/node_modules/react/index.js";
 import { renderToStaticMarkup } from "../../../apps/web/node_modules/react-dom/server.js";
@@ -35,6 +36,16 @@ describe("worksheet rendering contracts", () => {
     expect(subtractionHtml).toContain("cross-mark");
     expect(subtractionHtml).toContain('aria-label="Answer for question 1"');
     expect(subtractionHtml).not.toContain('aria-label="Response for');
+  });
+
+  it("renders generic curriculum primitives without exposing their answers", () => {
+    const activity = ActivitySpecSchema.parse({ schemaVersion: "1.0", id: "social-activity", studentId: "student-test", subject: "social-studies", conceptId: "social-studies.maps", title: "Maps and keys", objectives: ["Use a map key."], difficultyLevel: 4, estimatedMinutes: 10, activityType: "practice", representationStage: "visual", deliveryMode: "guided-screen", evidencePurpose: "formative", curriculumVersion: "growing-paths-r1", instructions: ["Read. Choose one answer."], items: [{ id: "map-choice", conceptId: "social-studies.maps", kind: "selected-response", content: "A blue line stands for a river.", prompt: "What does the blue line show?", choices: ["a river", "a road"], correctChoice: "a river", difficulty: 4 }], answerSpecs: { "map-choice": { type: "choice", expected: "a river" } }, scoring: { method: "exact" }, sourceMetadata: { origin: "original" }, createdAt: "2026-01-01T00:00:00.000Z" });
+    const child = toChildActivitySpec(activity);
+    const html = renderToStaticMarkup(createElement(WorksheetRenderer, { activity: child, options: { mode: "digital" } }));
+    expect(html).toContain("A blue line stands for a river.");
+    expect(html).toContain("a river");
+    expect(child.items[0]).not.toHaveProperty("correctChoice");
+    expect(html).not.toContain("answer-reveal");
   });
 
   it("uses a compact one-page layout for picture addition within twenty", () => {

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
-import { proxy } from "./proxy.js";
+import { config, proxy } from "./proxy.js";
 
 const originalPin = process.env.LEARNING_ADULT_PIN;
 afterEach(() => {
@@ -20,7 +21,13 @@ describe("optional adult PIN proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("redirects an unauthenticated adult request to the unlock page", async () => {
+  it("protects the adult roadmap endpoint without blocking its child-safe counterpart", () => {
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/adult/students/student-demo-ava/roadmap" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/students/student-demo-ava/roadmap" })).toBe(false);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/activities/activity-addition-01" })).toBe(false);
+  });
+
+  it("redirects an unauthenticated adult page request to the unlock page", async () => {
     process.env.LEARNING_ADULT_PIN = "2468";
     const response = await proxy(new NextRequest("http://localhost/adult/student-demo-ava/progress"));
     expect(response.status).toBeGreaterThanOrEqual(300);
@@ -28,9 +35,17 @@ describe("optional adult PIN proxy", () => {
     expect(response.headers.get("location")).toContain(encodeURIComponent("/adult/student-demo-ava/progress"));
   });
 
-  it("allows the matching local access cookie", async () => {
+  it("returns JSON authorization errors for protected APIs instead of redirecting mutations", async () => {
     process.env.LEARNING_ADULT_PIN = "2468";
-    const request = new NextRequest("http://localhost/adult/student-demo-ava", { headers: { cookie: `learning-adult-access=${token("2468")}` } });
+    const response = await proxy(new NextRequest("http://localhost/api/curriculum/proposals/proposal-1/decision", { method: "POST" }));
+    expect(response.status).toBe(401);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toMatchObject({ error: "Adult PIN required.", unlockUrl: "/adult/unlock" });
+  });
+
+  it("allows protected APIs with the matching local access cookie", async () => {
+    process.env.LEARNING_ADULT_PIN = "2468";
+    const request = new NextRequest("http://localhost/api/adult/students/student-demo-ava/roadmap", { headers: { cookie: `learning-adult-access=${token("2468")}` } });
     const response = await proxy(request);
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });

@@ -14,12 +14,12 @@ describe("MCP bundle", () => {
       return (await Promise.all(entries.map(async (entry) => entry.isDirectory() ? collect(join(directory, entry.name)) : entry.isFile() && entry.name.endsWith(".ts") ? [join(directory, entry.name)] : []))).flat();
     };
     const sourcePaths = (await Promise.all(sourceRoots.map(collect))).flat().sort();
-    const bundlePath = resolve(root, "plugin/hooks/scripts/kindergarten-mcp.mjs");
+    const bundlePath = resolve(root, "plugin/hooks/scripts/child-learning-mcp.mjs");
     const source = await Promise.all(sourcePaths.map((file) => readFile(file)));
     const bundle = await readFile(bundlePath, "utf8");
     const hash = createHash("sha256").update(Buffer.concat(source)).digest("hex");
-    expect(bundle).toContain(`kindergarten-mcp-source-sha256: ${hash}`);
+    expect(bundle).toContain(`child-learning-mcp-source-sha256: ${hash}`);
     expect((await stat(bundlePath)).mtimeMs).toBeGreaterThanOrEqual(Math.max(...(await Promise.all(sourcePaths.map(async (file) => (await stat(file)).mtimeMs)))));
-    expect(bundle).toContain("kindergarten-local");
+    expect(bundle).toContain("child-learning-local");
   });
 });
