@@ -26,9 +26,11 @@ import {
   type LearningDirective,
   type ProgressEvent,
   type ReportSnapshot,
+  type LearnerIntake,
   type RepresentationStage,
   type Student,
   type StudentConceptState,
+  type StudentCreateRequest,
   type Submission,
 } from "@child-learning/contracts";
 import {
@@ -37,22 +39,28 @@ import {
   DEFAULT_CURRICULUM,
   DEFAULT_PROGRESSION_POLICY,
   GROWING_PATHS_REVISION,
+  REFERENCE_PROGRESSIONS_REVISION,
   comparabilityKey,
+  childLifecycleLabels,
   conceptIsSecure,
   curriculumDefinitionsToPackRevision,
   deriveConceptAvailability,
   filterAvailableActivities,
+  orderActionableActivities,
+  projectActivityLifecycles,
   projectLearnerRoadmaps,
   projectProgression,
   projectStudentConceptState,
   progressEventsFromEvaluation,
   rankRecommendations,
   recentTrend,
+  resolveActiveEvaluation,
   scoreSubmission,
 } from "@child-learning/domain";
 import { closeDatabase, LearningRepository, migrateDatabase, openDatabase, type SqliteDatabase } from "@child-learning/database";
 import { seedDemo } from "@child-learning/demo";
 import { ArtifactStore, type StoredArtifact } from "@child-learning/storage";
+import { reportWindow } from "./report-periods.js";
 
 export interface LocalServiceOptions {
   projectRoot?: string;
@@ -60,6 +68,7 @@ export interface LocalServiceOptions {
   artifactsDir?: string;
   clock?: () => string;
   env?: NodeJS.ProcessEnv;
+  dataScope?: Student["dataScope"];
 }
 
 export interface RecommendationRequestOptions {
@@ -69,12 +78,19 @@ export interface RecommendationRequestOptions {
   adultGoalConceptIds?: string[];
 }
 
+export interface ReportGenerationOptions {
+  kind?: "current" | "monthly" | "quarterly";
+  selectedDate?: string;
+  timeZone?: string;
+  asOf?: string;
+}
+
 export interface DemoStatus {
   initialized: boolean;
   projectRoot: string;
   databasePath: string;
   artifactsDir: string;
-  dataLocation: "explicit" | "workspace" | "legacy-web";
+  dataLocation: "explicit" | "workspace" | "legacy-web" | "demo";
   students: number;
   activities: number;
   submissions: number;
@@ -86,6 +102,7 @@ export interface LocalService {
   readonly root: string;
   readonly databasePath: string;
   readonly artifactsDir: string;
+  readonly dataScope: Student["dataScope"];
   readonly db: SqliteDatabase;
   readonly repo: LearningRepository;
   readonly store: ArtifactStore;
@@ -95,6 +112,8 @@ export interface LocalService {
   demoStatus(): DemoStatus;
   listStudents(): Student[];
   createStudent(input: { id?: string; displayName: string; birthDate?: string; schoolPlacement?: string; preferredLanguage?: string; accommodations?: string[]; interests?: string[]; learningGoals?: string[]; selectedSubjects?: string[]; reportedCapabilities?: Student["reportedCapabilities"]; baselineNotes?: string; baselineStatus?: Student["baselineStatus"] }): Student;
+  createLearnerWithIntake(input: StudentCreateRequest): Promise<Record<string, unknown>>;
+  completeLearnerIntake(studentId: string, intake: LearnerIntake): Promise<Record<string, unknown>>;
   getStudentContext(studentId: string): Record<string, unknown>;
   generateActivity(input: { subject?: ActivitySpec["subject"]; conceptId?: string; generator?: string; seed: number; studentId?: string; itemCount?: number; representationStage?: RepresentationStage; difficultyLevel?: number; now?: string }): ActivitySpec;
   validateAndStoreActivity(specInput: unknown): Promise<Record<string, unknown>>;
@@ -114,12 +133,13 @@ export interface LocalService {
   decideCurriculumRevision(input: { proposalId: string; decision: "approved" | "rejected"; reviewerId: string; note: string; now?: string }): CurriculumRevisionDecision;
   activateCurriculumRevision(input: { proposalId?: string; revisionId?: string; actorId: string; reason: string; action?: "activate" | "rollback"; now?: string }): Promise<Record<string, unknown>>;
   applyLearningDirective(input: { id: string; studentId: string; conceptId: string; action: "introduce" | "assess" | "prioritize" | "defer" | "clear"; reason: string; authorId: string; requestedStage?: RepresentationStage; priority?: number; expiresAt?: string; operationKey?: string }): Promise<Record<string, unknown>>;
+  projectLearnerWork(studentId: string, options?: RecommendationRequestOptions): Record<string, unknown>;
   recommendNextActivity(studentId: string, options?: RecommendationRequestOptions): Promise<Record<string, unknown>>;
   getTimeline(studentId: string): unknown[];
   getArtifactLineage(artifactId: string): Promise<Record<string, unknown>>;
   applyOverride(input: { id: string; studentId: string; conceptId: string; targetStep: number; reason: string; authorId: string; targetId?: string; operationKey?: string }): Record<string, unknown>;
   reverseOverride(input: { id: string; studentId: string; conceptId: string; targetId: string; reason: string; authorId: string; operationKey?: string }): Record<string, unknown>;
-  generateProgressReport(studentId: string, now?: string): Promise<Record<string, unknown>>;
+  generateProgressReport(studentId: string, options?: string | ReportGenerationOptions): Promise<Record<string, unknown>>;
   composeVisualAsset(input: { id?: string; width?: number; height?: number; shapes: Array<Record<string, unknown>>; metadata?: Record<string, unknown> }): Promise<StoredArtifact>;
 }
 
@@ -131,7 +151,8 @@ const rowStudent = (row: Record<string, unknown>): Student => {
   const metadata = parseJson<{ preferredLanguage?: string; accommodations?: string[]; interests?: string[]; learningGoals?: string[]; selectedSubjects?: string[]; reportedCapabilities?: Student["reportedCapabilities"]; baselineNotes?: string; baselineStatus?: Student["baselineStatus"] }>(row.metadata_json, {});
   return StudentSchema.parse({
     id: row.id, displayName: row.display_name, birthDate: row.birth_date ?? undefined,
-    gradeBand: row.grade ?? "school-age", preferredLanguage: metadata.preferredLanguage ?? "en", accommodations: metadata.accommodations ?? [], interests: metadata.interests ?? [], learningGoals: metadata.learningGoals ?? [], selectedSubjects: metadata.selectedSubjects ?? [], reportedCapabilities: metadata.reportedCapabilities ?? [], ...(metadata.baselineNotes ? { baselineNotes: metadata.baselineNotes } : {}), baselineStatus: metadata.baselineStatus ?? "unassessed",
+    gradeBand: row.grade ?? "school-age", preferredLanguage: metadata.preferredLanguage ?? "en", accommodations: metadata.accommodations ?? [], interests: metadata.interests ?? [], learningGoals: metadata.learningGoals ?? [], selectedSubjects: metadata.selectedSubjects ?? [], reportedCapabilities: metadata.reportedCapabilities ?? [], ...(metadata.baselineNotes ? { baselineNotes: metadata.baselineNotes } : {}), baselineStatus: metadata.baselineStatus ?? "awaiting-intake",
+    dataScope: row.data_scope ?? "household", ...(row.source_dataset_id ? { sourceDatasetId: String(row.source_dataset_id) } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at,
   });
 };
@@ -141,6 +162,13 @@ const rowActivity = (row: Record<string, unknown>, adult: boolean): Record<strin
   return { ...safe, artifactId: row.artifact_id ?? undefined };
 };
 const cleanUndefined = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+function rowSubmission(row: Record<string, unknown>): Submission {
+  const payload = parseJson<{ responses?: Submission["responses"] }>(row.payload_json, {});
+  return SubmissionSchema.parse({ id: row.id, studentId: row.student_id, activityId: row.activity_id, responses: payload.responses ?? [], submittedAt: row.submitted_at, ...(row.artifact_id ? { artifactId: row.artifact_id } : {}), ...(row.retry_of_submission_id ? { retryOfSubmissionId: row.retry_of_submission_id } : {}) });
+}
+function rowEvaluation(row: Record<string, unknown>): Evaluation {
+  return EvaluationSchema.parse(parseJson(row.evaluation_json, {}));
+}
 function rowProgressEvent(row: Record<string, unknown>): ProgressEvent {
   return {
     id: String(row.id), studentId: String(row.student_id), conceptId: String(row.concept_id),
@@ -278,27 +306,63 @@ export function resolveProjectRoot(env: NodeJS.ProcessEnv = process.env, cwd = p
   return configured ? resolve(configured) : findWorkspaceRoot(cwd);
 }
 
+export function planStartingDiagnostics(registry: CurriculumRegistry, intake: LearnerIntake, selectedSubjects: readonly string[] = []): Array<{ subject: string; conceptId: string; stage: RepresentationStage; claim?: string }> {
+  const chosen = new Map<string, { subject: string; conceptId: string; stage: RepresentationStage; claim?: string; step: number }>();
+  const allowed = (subject: string) => selectedSubjects.length === 0 || selectedSubjects.includes(subject);
+  const choose = (target: { subject: string; conceptId: string; stage: RepresentationStage; claim?: string; step: number }) => {
+    if (!allowed(target.subject)) throw new Error(`${target.subject} is not one of this learner's selected subjects.`);
+    const current = chosen.get(target.subject);
+    if (!current || target.step > current.step) chosen.set(target.subject, target);
+  };
+  const claims = [...new Set(intake.observedCapabilities)];
+  for (const claim of claims) {
+    const matches = [...registry.concepts.values()].flatMap((concept) => {
+      const explicit = concept.assessmentTargets.find((target) => target.claim === claim);
+      if (explicit) return [{ concept, stage: explicit.stage }];
+      if (concept.assessmentClaims.includes(claim)) return [{ concept, stage: concept.stages[Math.min(1, concept.stages.length - 1)]!.stage }];
+      return [];
+    });
+    if (matches.length !== 1) throw new Error(matches.length === 0 ? `No diagnostic target is registered for ${claim}.` : `More than one diagnostic target is registered for ${claim}.`);
+    const match = matches[0]!;
+    choose({ subject: match.concept.subject, conceptId: match.concept.id, stage: match.stage, claim, step: match.concept.step });
+  }
+  for (const anchor of intake.questionnaireAnchors) {
+    if (anchor.capabilityId) {
+      if (!claims.includes(anchor.capabilityId)) {
+        const nested = planStartingDiagnostics(registry, { observedCapabilities: [anchor.capabilityId], questionnaireAnchors: [], source: "questionnaire" }, selectedSubjects);
+        for (const target of nested) choose({ ...target, step: registry.concepts.get(target.conceptId)!.step });
+      }
+      continue;
+    }
+    const root = [...registry.concepts.values()].filter((concept) => concept.subject === anchor.subject && concept.prerequisites.length === 0 && concept.readinessConceptIds.length === 0).sort((a, b) => a.step - b.step || a.id.localeCompare(b.id))[0];
+    if (!root) throw new Error(`No entry diagnostic is registered for ${anchor.subject}.`);
+    choose({ subject: root.subject, conceptId: root.id, stage: root.stages[0]!.stage, step: root.step });
+  }
+  return [...chosen.values()].map((target) => ({ subject: target.subject, conceptId: target.conceptId, stage: target.stage, ...(target.claim ? { claim: target.claim } : {}) }));
+}
+
 export function createLocalService(options: LocalServiceOptions = {}): LocalService {
   const env = options.env ?? process.env;
   const root = resolve(options.projectRoot ?? resolveProjectRoot(env));
-  const explicitDatabasePath = options.databasePath ?? env.CHILD_LEARNING_DB_PATH ?? env.KINDERGARTEN_DB_PATH ?? env.LEARNING_WORKTABLE_DB;
-  const explicitArtifactsDir = options.artifactsDir ?? env.CHILD_LEARNING_ARTIFACTS_DIR ?? env.KINDERGARTEN_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS;
+  const dataScope = options.dataScope ?? "household";
+  const explicitDatabasePath = options.databasePath ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_DB_PATH : env.CHILD_LEARNING_DB_PATH) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_DB_PATH ?? env.LEARNING_WORKTABLE_DB);
+  const explicitArtifactsDir = options.artifactsDir ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_ARTIFACTS_DIR : env.CHILD_LEARNING_ARTIFACTS_DIR) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS);
   const legacyDatabasePath = join(root, "apps/web/.data/learning-worktable.db");
-  const useLegacyWebData = !explicitDatabasePath && existsSync(legacyDatabasePath);
+  const useLegacyWebData = dataScope !== "demo" && !explicitDatabasePath && existsSync(legacyDatabasePath);
   const resolveDataPath = (value: string): string => isAbsolute(value) ? resolve(value) : resolve(root, value);
-  const databasePath = resolveDataPath(explicitDatabasePath ?? (useLegacyWebData ? "apps/web/.data/learning-worktable.db" : ".data/learning-worktable.db"));
-  const artifactsDir = resolveDataPath(explicitArtifactsDir ?? (useLegacyWebData ? "apps/web/.data/artifacts" : ".data/artifacts"));
-  const dataLocation: DemoStatus["dataLocation"] = explicitDatabasePath || explicitArtifactsDir ? "explicit" : useLegacyWebData ? "legacy-web" : "workspace";
+  const databasePath = resolveDataPath(explicitDatabasePath ?? (dataScope === "demo" ? ".data/demo/learning-worktable.db" : useLegacyWebData ? "apps/web/.data/learning-worktable.db" : ".data/learning-worktable.db"));
+  const artifactsDir = resolveDataPath(explicitArtifactsDir ?? (dataScope === "demo" ? ".data/demo/artifacts" : useLegacyWebData ? "apps/web/.data/artifacts" : ".data/artifacts"));
+  const dataLocation: DemoStatus["dataLocation"] = dataScope === "demo" && !explicitDatabasePath && !explicitArtifactsDir ? "demo" : explicitDatabasePath || explicitArtifactsDir ? "explicit" : useLegacyWebData ? "legacy-web" : "workspace";
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = openDatabase({ filename: databasePath });
   migrateDatabase(db);
   const clock = options.clock ?? (() => new Date().toISOString());
   const repo = new LearningRepository(db, clock);
   const store = new ArtifactStore({ rootDir: artifactsDir, clock });
-  const builtInRevisions = [curriculumDefinitionsToPackRevision(DEFAULT_CURRICULUM), GROWING_PATHS_REVISION];
+  const builtInRevisions = [curriculumDefinitionsToPackRevision(DEFAULT_CURRICULUM), GROWING_PATHS_REVISION, REFERENCE_PROGRESSIONS_REVISION];
   for (const revision of builtInRevisions) {
     if (!repo.getCurriculumRevision(revision.id)) repo.saveCurriculumRevision(revision, createHash("sha256").update(JSON.stringify(revision)).digest("hex"));
-    if (!db.prepare("SELECT 1 FROM curriculum_activations WHERE pack_id = ? LIMIT 1").get(revision.packId)) repo.saveCurriculumActivation({ id: `activation-${revision.id}`, packId: revision.packId, revisionId: revision.id, action: "activate", actorId: "system-migration", reason: revision.id === "capability-path-v1" ? "Import the original capability path as the first immutable curriculum revision." : "Activate the original open-ended demonstration paths.", createdAt: revision.createdAt });
+    if (!db.prepare("SELECT 1 FROM curriculum_activations WHERE pack_id = ? LIMIT 1").get(revision.packId)) repo.saveCurriculumActivation({ id: `activation-${revision.id}`, packId: revision.packId, revisionId: revision.id, action: "activate", actorId: "system-migration", reason: revision.id === "capability-path-v1" ? "Import the original capability path as the first immutable curriculum revision." : revision.id === GROWING_PATHS_REVISION.id ? "Activate the original open-ended growing paths." : "Activate the original broad reference progression paths.", createdAt: revision.createdAt });
   }
   const registryOptions = { generators: new Set([...Object.keys(ACTIVITY_GENERATORS), "template-bank"]), evaluators: new Set(["deterministic", "human", "review-gated"]), renderers: new Set(["worksheet", "guided-screen", "hands-on"]) };
   let registry = new CurriculumRegistry(repo.listActiveCurriculumRevisions(), registryOptions);
@@ -333,20 +397,52 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     if (pendingDiagnostics === 0) repo.saveStudent({ id: learner.id, displayName: learner.displayName, ...(learner.birthDate ? { birthDate: learner.birthDate } : {}), grade: learner.gradeBand, metadata: { preferredLanguage: learner.preferredLanguage, accommodations: learner.accommodations, interests: learner.interests, learningGoals: learner.learningGoals, selectedSubjects: learner.selectedSubjects, reportedCapabilities: learner.reportedCapabilities, baselineNotes: learner.baselineNotes, baselineStatus: "established" } });
   };
   const service: LocalService = {
-    root, databasePath, artifactsDir, db, repo, store,
+    root, databasePath, artifactsDir, dataScope, db, repo, store,
     get registry() { return registry; },
     close: () => closeDatabase(db),
-    async initializeDemo(now) { return seedDemo({ databasePath, artifactsDir, now: now ?? clock() }); },
+    async initializeDemo(now) {
+      if (dataScope !== "demo") throw new Error("Demo initialization requires the isolated demo service.");
+      return seedDemo({ databasePath, artifactsDir, now: now ?? clock() });
+    },
     demoStatus() {
       const counts = dbCounts(db);
       return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, dataLocation, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
     },
-    listStudents: () => repo.listStudents().map(rowStudent),
+    listStudents: () => repo.listStudents(dataScope === "demo" ? ["demo", "legacy-mixed"] : ["household", "legacy-mixed"]).map(rowStudent),
     createStudent(input) {
       const now = clock();
-      const student = StudentSchema.parse({ id: input.id ?? `student-${randomUUID()}`, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "unassessed", createdAt: now, updatedAt: now });
-      const row = repo.saveStudent({ id: student.id, displayName: student.displayName, ...(student.birthDate ? { birthDate: student.birthDate } : {}), grade: student.gradeBand, metadata: { preferredLanguage: student.preferredLanguage, accommodations: student.accommodations, interests: student.interests, learningGoals: student.learningGoals, selectedSubjects: student.selectedSubjects, reportedCapabilities: student.reportedCapabilities, baselineNotes: student.baselineNotes, baselineStatus: student.baselineStatus } });
+      const generatedId = dataScope === "demo" ? `synthetic-demo-v2-student-${randomUUID()}` : `student-${randomUUID()}`;
+      const student = StudentSchema.parse({ id: input.id ?? generatedId, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "awaiting-intake", dataScope, createdAt: now, updatedAt: now });
+      const row = repo.saveStudent({ id: student.id, displayName: student.displayName, ...(student.birthDate ? { birthDate: student.birthDate } : {}), grade: student.gradeBand, dataScope: student.dataScope, ...(student.sourceDatasetId ? { sourceDatasetId: student.sourceDatasetId } : {}), metadata: { preferredLanguage: student.preferredLanguage, accommodations: student.accommodations, interests: student.interests, learningGoals: student.learningGoals, selectedSubjects: student.selectedSubjects, reportedCapabilities: student.reportedCapabilities, baselineNotes: student.baselineNotes, baselineStatus: student.baselineStatus } });
       return rowStudent(row);
+    },
+    async createLearnerWithIntake(input) {
+      const observedCapabilities = [...new Set([...(input.currentCapabilities ?? []), ...(input.intake?.observedCapabilities ?? [])])];
+      const intake = { observedCapabilities, questionnaireAnchors: input.intake?.questionnaireAnchors ?? [], source: input.intake?.source ?? "adult-observation" as const };
+      const hasIntake = intake.observedCapabilities.length > 0 || intake.questionnaireAnchors.length > 0;
+      const student = service.createStudent({ displayName: input.displayName, ...(input.id ? { id: input.id } : {}), ...(input.birthDate ? { birthDate: input.birthDate } : {}), ...(input.schoolPlacement ? { schoolPlacement: input.schoolPlacement } : {}), ...(input.preferredLanguage ? { preferredLanguage: input.preferredLanguage } : {}), ...(input.accommodations ? { accommodations: input.accommodations } : {}), ...(input.interests ? { interests: input.interests } : {}), ...(input.learningGoals ? { learningGoals: input.learningGoals } : {}), ...(input.selectedSubjects ? { selectedSubjects: input.selectedSubjects } : {}), reportedCapabilities: observedCapabilities, ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: hasIntake ? "unassessed" : "awaiting-intake" });
+      if (!hasIntake) return { student, starters: [], baselineMode: "awaiting-intake" as const };
+      return service.completeLearnerIntake(student.id, intake);
+    },
+    async completeLearnerIntake(studentId, intake) {
+      const row = repo.getStudent(studentId);
+      if (!row) throw new Error(`student not found: ${studentId}`);
+      const student = rowStudent(row);
+      if (student.dataScope !== dataScope) throw new Error("Learner data scope does not match this service.");
+      const targets = planStartingDiagnostics(registry, intake, student.selectedSubjects);
+      if (targets.length === 0) throw new Error("Choose an observed ability or an explicit subject entry diagnostic before creating work.");
+      const observedCapabilities = [...new Set([...student.reportedCapabilities, ...intake.observedCapabilities, ...intake.questionnaireAnchors.flatMap((anchor) => anchor.capabilityId ? [anchor.capabilityId] : [])])];
+      const updatedRow = repo.saveStudent({ id: student.id, displayName: student.displayName, ...(student.birthDate ? { birthDate: student.birthDate } : {}), grade: student.gradeBand, dataScope: student.dataScope, ...(student.sourceDatasetId ? { sourceDatasetId: student.sourceDatasetId } : {}), metadata: { preferredLanguage: student.preferredLanguage, accommodations: student.accommodations, interests: student.interests, learningGoals: student.learningGoals, selectedSubjects: student.selectedSubjects, reportedCapabilities: observedCapabilities, baselineNotes: student.baselineNotes, baselineStatus: "diagnostic-in-progress" } });
+      const starters: Record<string, unknown>[] = [];
+      for (const target of targets) {
+        const directiveId = `baseline-${student.id}-${target.conceptId}-${randomUUID()}`;
+        await service.applyLearningDirective({ id: directiveId, studentId: student.id, conceptId: target.conceptId, action: "assess", reason: "Adult-reported placement selects this diagnostic; only confirmed work changes progress.", authorId: "local-adult", requestedStage: target.stage, priority: 5 });
+        const generated = service.generateActivity({ studentId: student.id, conceptId: target.conceptId, seed: Number.parseInt(createHash("sha256").update(`${student.id}:${target.conceptId}:${target.stage}`).digest("hex").slice(0, 8), 16), representationStage: target.stage });
+        const draft = ActivitySpecSchema.parse({ ...generated, title: `Starting check: ${generated.title}`, activityType: "assessment", rationale: "This diagnostic begins near an adult-reported capability. Only confirmed responses establish the learning path.", comparabilityKey: "pending" });
+        starters.push(await service.validateAndStoreActivity({ ...draft, comparabilityKey: comparabilityKey(draft) }));
+      }
+      await service.reconcileLearningRoadmaps(student.id, "starting-assessment", student.id);
+      return { student: rowStudent(updatedRow), starters, baselineMode: "adult-report-plus-confirmed-diagnostic" as const, targets };
     },
     getStudentContext(studentId) {
       const student = repo.getStudent(studentId);
@@ -359,14 +455,15 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       let identifier = input.conceptId ?? input.generator;
       let representationStage = input.representationStage;
       if (!identifier && input.studentId && repo.getStudent(input.studentId)) {
+        const learner = rowStudent(repo.getStudent(input.studentId)!);
+        if (learner.baselineStatus === "awaiting-intake") throw new Error("Complete learner intake before generating an activity without an explicit diagnostic concept.");
         const path = service.getLearningPath(input.studentId) as { availability: ConceptAvailability[] };
         const candidates = path.availability.filter((concept) => concept.status !== "locked" && concept.status !== "deferred" && (!input.subject || concept.subject === input.subject)).sort((a, b) => b.priority - a.priority || availabilityStatusRank(a.status) - availabilityStatusRank(b.status) || a.conceptId.localeCompare(b.conceptId));
         const selected = candidates[0];
         if (selected) { identifier = selected.conceptId; representationStage = selected.currentStage; }
       }
       if (!identifier && input.subject) identifier = [...registry.concepts.values()].filter((concept) => concept.subject === input.subject).sort((a, b) => a.step - b.step)[0]?.id;
-      if (!identifier) identifier = registry.concepts.has("math.counting-to-10") ? "math.counting-to-10" : registry.concepts.keys().next().value;
-      if (!identifier) throw new Error("no active curriculum concepts are available");
+      if (!identifier) throw new Error("Specify a learner with completed intake, a subject entry diagnostic, or an explicit concept.");
       const concept = registry.concepts.get(identifier);
       const selectedStage = concept?.stages.find((stage) => stage.stage === representationStage) ?? concept?.stages[0];
       representationStage ??= selectedStage?.stage;
@@ -448,32 +545,39 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       if (!activityRow) throw new Error(`activity not found: ${input.activityId}`);
       const activity = ActivitySpecSchema.parse(parseJson(activityRow.specification_json, {}));
       if (activity.studentId !== input.studentId) throw new Error("submission student does not match activity student");
+      const retrySourceRow = input.retryOfSubmissionId ? db.prepare("SELECT student_id,activity_id FROM submissions WHERE id = ?").get(input.retryOfSubmissionId) as { student_id: string; activity_id: string } | undefined : undefined;
+      if (input.retryOfSubmissionId && (!retrySourceRow || retrySourceRow.student_id !== input.studentId || retrySourceRow.activity_id !== input.activityId)) throw new Error("Retry source must be a prior submission for the same learner and activity.");
+      const historicalRetry = Boolean(input.retryOfSubmissionId) && !registry.activityMatchesActiveRevision(activity);
       const path = service.getLearningPath(input.studentId) as { availability: ConceptAvailability[] };
-      if (!registry.activityMatchesActiveRevision(activity) || filterAvailableActivities([activity], path.availability).length === 0) throw new Error(`activity is not currently available for this student: ${input.activityId}`);
+      if (!historicalRetry && (!registry.activityMatchesActiveRevision(activity) || filterAvailableActivities([activity], path.availability).length === 0)) throw new Error(`activity is not currently available for this student: ${input.activityId}`);
       const submission = SubmissionSchema.parse({ ...input, submittedAt: iso(input.submittedAt, service.repo.clock), responses: input.responses ?? [] });
       const activityItemIds = new Set(activity.items.map((item) => item.id));
       if (submission.responses.some((response) => !activityItemIds.has(response.itemId))) throw new Error("submission responses must reference items from the activity");
       const evaluation = scoreSubmission(activity, submission, { evaluationId: `evaluation-${submission.id}`, now: submission.submittedAt });
       const state = stateFromRow(submission.studentId, activity.conceptId, repo.getConceptState(submission.studentId, activity.conceptId), submission.submittedAt);
-      const canProgress = evaluation.status === "final" && evaluation.items.every((item) => item.evidenceStatus === "confirmed");
+      const canProgress = !historicalRetry && evaluation.status === "final" && evaluation.items.every((item) => item.evidenceStatus === "confirmed");
       const event = canProgress ? progressEventsFromEvaluation(evaluation, activity, evaluation.evaluatedAt) : undefined;
       const events = canProgress ? repo.history(submission.studentId, activity.conceptId).map(rowProgressEvent) : [];
-      const projection = event ? projectProgression(state, [...events, event]) : { step: state.step, status: state.status, decision: "no-change" as const, reason: "Subjective or ambiguous work requires adult review before progress changes." };
+      const projection = event ? projectProgression(state, [...events, event]) : { step: state.step, status: state.status, decision: "no-change" as const, reason: historicalRetry ? "Historical worksheet retries remain in history but are not comparable to the active curriculum revision." : "Subjective or ambiguous work requires adult review before progress changes." };
       let nextState = event ? projectStudentConceptState(state, [...events, event]) : state;
       const conceptDefinition = registry.concepts.get(activity.conceptId);
       if (event && conceptDefinition && conceptIsSecure(conceptDefinition, [nextState], [...events, event])) nextState = { ...nextState, status: "secure" };
-      const artifact = await store.putText(JSON.stringify(submission), { source: "digital-submission", kind: "submission", submissionId: submission.id });
+      const artifact = await store.putText(JSON.stringify(submission), { source: "digital-submission", kind: "submission", submissionId: submission.id, ...(submission.retryOfSubmissionId ? { retryOfSubmissionId: submission.retryOfSubmissionId } : {}) });
       const evaluationArtifact = await store.putText(JSON.stringify(evaluation), { source: "deterministic-scorer", kind: "evaluation", evaluationId: evaluation.id });
       const activityArtifactId = typeof activityRow.artifact_id === "string" ? activityRow.artifact_id : "";
       if (!activityArtifactId) throw new Error("activity has no source artifact; refusing to record submission lineage");
       await store.addLineageEdge(activityArtifactId, artifact.id, "submitted-from");
+      const retrySource = submission.retryOfSubmissionId ? db.prepare("SELECT artifact_id FROM submissions WHERE id = ? AND student_id = ? AND activity_id = ?").get(submission.retryOfSubmissionId, submission.studentId, submission.activityId) as { artifact_id: string | null } | undefined : undefined;
+      if (submission.retryOfSubmissionId && !retrySource) throw new Error("Retry source must be a prior submission for the same learner and activity.");
+      if (retrySource?.artifact_id) await store.addLineageEdge(retrySource.artifact_id, artifact.id, "retry-of");
       await store.addLineageEdge(artifact.id, evaluationArtifact.id, "evaluated-from");
       const tx = db.transaction(() => {
         repo.recordArtifact({ id: artifact.id, sha256: artifact.sha256, mediaType: artifact.mediaType, byteLength: artifact.byteLength, relativePath: artifact.relativePath, metadata: artifact.metadata });
         repo.recordArtifact({ id: evaluationArtifact.id, sha256: evaluationArtifact.sha256, mediaType: evaluationArtifact.mediaType, byteLength: evaluationArtifact.byteLength, relativePath: evaluationArtifact.relativePath, metadata: evaluationArtifact.metadata });
         if (activityRow.artifact_id) repo.addArtifactEdge({ parentArtifactId: String(activityRow.artifact_id), childArtifactId: artifact.id, relation: "submitted-from" });
+        if (retrySource?.artifact_id) repo.addArtifactEdge({ parentArtifactId: retrySource.artifact_id, childArtifactId: artifact.id, relation: "retry-of" });
         repo.addArtifactEdge({ parentArtifactId: artifact.id, childArtifactId: evaluationArtifact.id, relation: "evaluated-from" });
-        repo.recordSubmission({ ...({ id: submission.id, studentId: submission.studentId, activityId: submission.activityId, responses: submission.responses, submittedAt: submission.submittedAt, artifactId: artifact.id } as const), ...(input.operationKey ? { operationKey: input.operationKey } : {}) });
+        repo.recordSubmission({ ...({ id: submission.id, studentId: submission.studentId, activityId: submission.activityId, responses: submission.responses, submittedAt: submission.submittedAt, artifactId: artifact.id } as const), ...(submission.retryOfSubmissionId ? { retryOfSubmissionId: submission.retryOfSubmissionId } : {}), ...(input.operationKey ? { operationKey: input.operationKey } : {}) });
         repo.recordEvaluation({ evaluation, ...(input.operationKey ? { operationKey: `${input.operationKey}:evaluation` } : {}) });
         for (const item of evaluation.items) repo.recordEvidence({ id: `evidence-${evaluation.id}-${item.itemId}`, evaluationId: evaluation.id, conceptId: evaluation.conceptId, evidenceType: item.evidenceStatus === "confirmed" ? "deterministic-score" : "review-required", value: item });
         if (event) {
@@ -626,7 +730,9 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       return { studentId, curriculumVersion: registry.revisions.map((revision) => revision.id).join("+"), availability, directives, gradeIsContextOnly: true };
     },
     listCurriculum() {
-      return { activeRevisions: registry.revisions, subjects: [...registry.subjects.values()], proposals: repo.listCurriculumProposals() };
+      const activeRevisionIds = new Set(registry.revisions.map((revision) => revision.id));
+      const proposals = repo.listCurriculumProposals().map((entry) => ({ ...entry, active: activeRevisionIds.has(entry.proposal.revision.id) }));
+      return { activeRevisions: registry.revisions, subjects: [...registry.subjects.values()], proposals };
     },
     getCurriculumGraph(subject) {
       const concepts = [...registry.concepts.values()].filter((concept) => !subject || concept.subject === subject);
@@ -709,11 +815,13 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
         if (decision?.decision !== "approved") throw new Error("curriculum revision requires explicit adult approval before activation");
         revision = proposal.revision;
       }
+      const currentActivation = db.prepare("SELECT revision_id FROM curriculum_activations WHERE pack_id = ? ORDER BY created_at DESC,rowid DESC LIMIT 1").get(revision.packId) as { revision_id: string } | undefined;
+      if (action === "activate" && currentActivation?.revision_id === revision.id) return { alreadyActive: true, activeRevisionIds: registry.revisions.map((entry) => entry.id), activation: null, reconciled: [] };
       const activation = CurriculumActivationSchema.parse({ id: `curriculum-activation-${randomUUID()}`, packId: revision.packId, revisionId: revision.id, action, actorId: input.actorId, reason: input.reason, createdAt: iso(input.now, clock) });
       repo.saveCurriculumActivation(activation);
       reloadRegistry();
       const reconciled = [];
-      for (const student of repo.listStudents()) reconciled.push(await service.reconcileLearningRoadmaps(String(student.id), "curriculum-activation", activation.id));
+      for (const student of service.listStudents()) reconciled.push(await service.reconcileLearningRoadmaps(student.id, "curriculum-activation", activation.id));
       return { activation, activeRevisionIds: registry.revisions.map((revision) => revision.id), reconciled };
     },
     async applyLearningDirective(input) {
@@ -733,6 +841,36 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       const result = { ...saved, learningPath: service.getLearningPath(input.studentId), roadmapUpdate };
       if (serviceOperationKey) repo.saveOperationResult(serviceOperationKey, "learning-directive-service", result);
       return result;
+    },
+    projectLearnerWork(studentId, options = {}) {
+      const recommendationNow = options.now ?? clock();
+      const studentRow = repo.getStudent(studentId);
+      if (!studentRow) throw new Error(`student not found: ${studentId}`);
+      const progress = service.getProgress(studentId);
+      const events = repo.progressHistory(studentId).map(rowProgressEvent);
+      const directiveRows = db.prepare("SELECT * FROM human_overrides WHERE student_id = ? ORDER BY created_at, rowid").all(studentId) as Record<string, unknown>[];
+      const directives = activeLearningDirectives(directiveRows, recommendationNow);
+      const learningPath = service.getLearningPath(studentId) as { availability: ConceptAvailability[] };
+      const activities = filterAvailableActivities(repo.listActivities(studentId).map((row) => ActivitySpecSchema.parse(parseJson(row.specification_json, {}))).filter((activity) => registry.activityMatchesActiveRevision(activity)), learningPath.availability);
+      const submissions = repo.listSubmissions(studentId).map(rowSubmission);
+      const evaluations = repo.listEvaluations(studentId).map(rowEvaluation);
+      const projections = projectActivityLifecycles(activities, submissions, evaluations);
+      const actionable = projections.filter((projection) => projection.status === "not-attempted" || projection.status === "corrections-needed");
+      const recentActivities = submissions.slice(-5).reverse().map((submission) => activities.find((activity) => activity.id === submission.activityId)).filter((activity): activity is ActivitySpec => Boolean(activity));
+           const prioritizedConceptIds = directives.filter((directive) => directive.action === "prioritize" || directive.action === "assess").map((directive) => directive.conceptId);
+           const recommendation = rankRecommendations(actionable.map((projection) => projection.activity), { studentId, now: recommendationNow, states: progress.states as StudentConceptState[], events, overrides: activeHumanOverrides(directiveRows), recentActivities, adultGoalConceptIds: [...new Set([...(options.adultGoalConceptIds ?? []), ...prioritizedConceptIds])], ...(options.availableMinutes === undefined ? {} : { availableMinutes: options.availableMinutes }), ...(options.preferredSubject === undefined ? {} : { preferredSubject: options.preferredSubject }) });
+      const ordered = orderActionableActivities(projections, recommendation);
+      const orderedActionableIds = ordered.filter((projection) => projection.status === "corrections-needed" || projection.status === "not-attempted").map((projection) => projection.activity.id);
+      const candidates = [...recommendation.candidates].sort((left, right) => orderedActionableIds.indexOf(left.activityId) - orderedActionableIds.indexOf(right.activityId));
+      const liveRecommendation = { ...recommendation, candidates, selectedActivityId: orderedActionableIds[0] };
+      const project = (projection: typeof projections[number]) => {
+        const labels = childLifecycleLabels(projection.status);
+        const rank = candidates.findIndex((candidate) => candidate.activityId === projection.activity.id);
+        return { activity: toChildActivitySpec(projection.activity), status: projection.status, ...labels, attemptCount: projection.submissions.length, ...(projection.latestSubmission ? { latestSubmissionId: projection.latestSubmission.id, latestAttemptAt: projection.latestSubmission.submittedAt } : {}), recommended: liveRecommendation.selectedActivityId === projection.activity.id, ...(rank >= 0 ? { recommendationRank: rank + 1 } : {}) };
+      };
+      const current = ordered.filter((projection) => projection.status !== "complete").map(project);
+      const history = ordered.filter((projection) => projection.submissions.length > 0).sort((left, right) => (right.latestSubmission?.submittedAt ?? "").localeCompare(left.latestSubmission?.submittedAt ?? "") || left.activity.id.localeCompare(right.activity.id)).map(project);
+      return { student: rowStudent(studentRow), current, history, recommendation: liveRecommendation, availability: learningPath.availability };
     },
     async recommendNextActivity(studentId, options = {}) {
       const recommendationNow = options.now ?? clock();
@@ -827,77 +965,73 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       });
       return tx();
     },
-    async generateProgressReport(studentId, now) {
-      const reportNow = iso(now, service.repo.clock);
-      const progress = service.getProgress(studentId);
-      const states = progress.states as ReportSnapshot["conceptStates"];
-      const history = repo.progressHistory(studentId).map(rowProgressEvent);
+    async generateProgressReport(studentId, request = {}) {
+      const options = typeof request === "string" ? { asOf: request } : request;
+      const window = reportWindow({ now: clock(), ...(options.kind ? { kind: options.kind } : {}), ...(options.selectedDate ? { selectedDate: options.selectedDate } : {}), ...(options.timeZone ? { timeZone: options.timeZone } : {}), ...(options.asOf ? { asOf: options.asOf } : {}) });
+      const cutoff = window.asOf;
+      const periodStart = window.period?.startInclusive;
+      if (!repo.getStudent(studentId)) throw new Error(`student not found: ${studentId}`);
+
+      const activationRows = db.prepare(`SELECT r.definition_json FROM curriculum_revisions r JOIN curriculum_activations a ON a.revision_id = r.id
+        WHERE a.created_at <= ? AND a.rowid = (SELECT a2.rowid FROM curriculum_activations a2 WHERE a2.pack_id = a.pack_id AND a2.created_at <= ? ORDER BY a2.created_at DESC,a2.rowid DESC LIMIT 1)
+        ORDER BY r.pack_id`).all(cutoff, cutoff) as Array<{ definition_json: string }>;
+      const historicalRevisions = activationRows.map((row) => CurriculumPackRevisionSchema.parse(JSON.parse(row.definition_json)));
+      const reportRegistry = new CurriculumRegistry(historicalRevisions.length > 0 ? historicalRevisions : registry.revisions, registryOptions);
+
+      const progressRows = db.prepare("SELECT * FROM progress_events WHERE student_id = ? AND occurred_at <= ? ORDER BY occurred_at,id").all(studentId, cutoff) as Record<string, unknown>[];
+      const history = progressRows.map(rowProgressEvent);
+      const latestByConcept = new Map<string, Record<string, unknown>>();
+      for (const row of progressRows) latestByConcept.set(String(row.concept_id), row);
+      const states: ReportSnapshot["conceptStates"] = [...latestByConcept.entries()].map(([conceptId, row]) => {
+        const snapshot = parseJson<{ step?: number; status?: StudentConceptState["status"] }>(row.new_state_json, {});
+        const scores = history.filter((event) => event.conceptId === conceptId && event.evidenceStatus === "confirmed" && typeof event.score === "number").map((event) => event.score!);
+        return { studentId, conceptId, step: snapshot.step ?? 0, status: snapshot.status ?? "new", recentScores: scores.slice(-60), lastEvidenceAt: String(row.occurred_at), updatedAt: String(row.occurred_at) };
+      });
+      const periodHistory = periodStart ? history.filter((event) => event.occurredAt >= periodStart && event.occurredAt <= cutoff) : history;
       const evidence = states.map((state) => {
-        const conceptEvents = history.filter((event) => event.conceptId === state.conceptId);
-        const trend = recentTrend(conceptEvents);
-        return { conceptId: state.conceptId, recentScores: state.recentScores, trend: trend.direction, evidenceCount: conceptEvents.filter((event) => event.eventType === "observation" && event.evidenceStatus === "confirmed").length };
+        const events = periodHistory.filter((event) => event.conceptId === state.conceptId);
+        return { conceptId: state.conceptId, recentScores: events.filter((event) => typeof event.score === "number").map((event) => event.score!).slice(-10), trend: recentTrend(events).direction, evidenceCount: events.filter((event) => event.evidenceStatus === "confirmed" && typeof event.score === "number").length };
       });
-      const directiveRows = db.prepare("SELECT * FROM human_overrides WHERE student_id = ? ORDER BY created_at, rowid").all(studentId) as Record<string, unknown>[];
-      const directives = activeLearningDirectives(directiveRows, reportNow);
-      const availability = deriveConceptAvailability({ definitions: registry.definitions(), states, events: history, directives, now: reportNow });
-      const roadmapUpdate = await service.reconcileLearningRoadmaps(studentId, "progress-report");
-      const roadmapRevisionIds = (roadmapUpdate.roadmaps as LearnerRoadmap[]).map((roadmap) => roadmap.id);
+      const directiveRows = db.prepare("SELECT * FROM human_overrides WHERE student_id = ? AND created_at <= ? ORDER BY created_at,rowid").all(studentId, cutoff) as Record<string, unknown>[];
+      const directives = activeLearningDirectives(directiveRows, cutoff);
+      const availability = deriveConceptAvailability({ definitions: reportRegistry.definitions(), states, events: history, directives, now: cutoff });
+      const roadmaps = projectLearnerRoadmaps({ studentId, registry: reportRegistry, states, events: history, directives, now: cutoff });
+      const roadmapRevisionIds = roadmaps.map((roadmap) => roadmap.id);
       const strengths = availability.filter((concept) => concept.status === "secure").map((concept) => concept.conceptId);
-      const needsPractice = states.filter((state) => {
-        if (state.status === "revisit") return true;
-        const recent = state.recentScores.slice(-3);
-        return recent.length >= 2 && recent.reduce((sum, score) => sum + score, 0) / recent.length < 0.75;
-      }).map((state) => state.conceptId);
-      const activities = repo.listActivities(studentId).map((row) => ActivitySpecSchema.parse(parseJson(row.specification_json, {}))).filter((activity) => registry.activityMatchesActiveRevision(activity));
+      const needsPractice = states.filter((state) => state.status === "revisit" || (state.recentScores.slice(-3).length >= 2 && state.recentScores.slice(-3).reduce((sum, score) => sum + score, 0) / state.recentScores.slice(-3).length < .75)).map((state) => state.conceptId);
+
+      const activityRows = db.prepare("SELECT * FROM activities WHERE student_id = ? AND created_at <= ? ORDER BY created_at,id").all(studentId, cutoff) as Record<string, unknown>[];
+      const activities = activityRows.map((row) => ActivitySpecSchema.parse(parseJson(row.specification_json, {}))).filter((activity) => reportRegistry.activityMatchesActiveRevision(activity));
       const eligibleActivities = filterAvailableActivities(activities, availability);
-      const recentActivityRows = db.prepare(`SELECT a.id, a.subject, a.concept_id FROM submissions s JOIN activities a ON a.id = s.activity_id WHERE s.student_id = ? ORDER BY s.submitted_at DESC LIMIT 5`).all(studentId) as Array<{ id: string; subject: ActivitySpec["subject"]; concept_id: string }>;
-      const overrides = activeHumanOverrides(directiveRows);
+      const recentActivityRows = db.prepare(`SELECT a.id,a.subject,a.concept_id FROM submissions s JOIN activities a ON a.id=s.activity_id WHERE s.student_id=? AND s.submitted_at<=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 5`).all(studentId, cutoff) as Array<{ id: string; subject: ActivitySpec["subject"]; concept_id: string }>;
       const prioritizedConceptIds = directives.filter((directive) => directive.action === "prioritize" || directive.action === "assess").map((directive) => directive.conceptId);
-      const recommendation = rankRecommendations(eligibleActivities, { studentId, now: reportNow, states, events: history, overrides, adultGoalConceptIds: prioritizedConceptIds, recentActivities: recentActivityRows.map((activity) => ({ id: activity.id, subject: activity.subject, conceptId: activity.concept_id })) });
+      const recommendation = rankRecommendations(eligibleActivities, { studentId, now: cutoff, states, events: history, overrides: activeHumanOverrides(directiveRows), adultGoalConceptIds: prioritizedConceptIds, recentActivities: recentActivityRows.map((activity) => ({ id: activity.id, subject: activity.subject, conceptId: activity.concept_id })) });
       const recommendedNextSteps = recommendation.selectedActivityId ? [recommendation.conciseReason] : [];
-      const worksheetRows = db.prepare(`
-        SELECT s.id AS submission_id, s.activity_id, s.submitted_at, a.title, a.subject, a.concept_id, a.specification_json,
-          e.id AS evaluation_id, e.outcome, e.evaluation_json
-        FROM submissions s
-        JOIN activities a ON a.id = s.activity_id
-        LEFT JOIN evaluations e ON e.id = (
-          SELECT candidate.id FROM evaluations candidate
-          WHERE candidate.submission_id = s.id
-          ORDER BY CASE candidate.outcome WHEN 'final' THEN 0 WHEN 'needs-human-review' THEN 1 ELSE 2 END, candidate.evaluated_at DESC, candidate.id DESC
-          LIMIT 1
-        )
-        WHERE s.student_id = ?
-        ORDER BY s.submitted_at DESC, s.id DESC
-        LIMIT 20
-      `).all(studentId) as Record<string, unknown>[];
-      const worksheetSummaries = worksheetRows.map((row) => {
+
+      const submissionRows = db.prepare(`SELECT s.*,a.title,a.subject,a.concept_id,a.specification_json FROM submissions s JOIN activities a ON a.id=s.activity_id
+        WHERE s.student_id=? AND s.submitted_at<=? ${periodStart ? "AND s.submitted_at>=?" : ""} ORDER BY s.submitted_at DESC,s.id DESC`).all(...(periodStart ? [studentId, cutoff, periodStart] : [studentId, cutoff])) as Record<string, unknown>[];
+      const submissionIds = submissionRows.map((row) => String(row.id));
+      const evaluationRows = submissionIds.length > 0 ? db.prepare(`SELECT * FROM evaluations WHERE evaluated_at<=? AND submission_id IN (${submissionIds.map(() => "?").join(",")}) ORDER BY evaluated_at,id`).all(cutoff, ...submissionIds) as Record<string, unknown>[] : [];
+      const evaluations = evaluationRows.map(rowEvaluation);
+      const worksheetSummaries = submissionRows.map((row) => {
         const activity = ActivitySpecSchema.parse(parseJson(row.specification_json, {}));
-        const evaluationResult = row.evaluation_json ? EvaluationSchema.safeParse(parseJson(row.evaluation_json, {})) : undefined;
-        const evaluation = evaluationResult?.success ? evaluationResult.data : undefined;
-        return {
-          submissionId: String(row.submission_id), activityId: String(row.activity_id), title: String(row.title), subject: activity.subject, conceptId: String(row.concept_id), submittedAt: String(row.submitted_at),
-          ...(evaluation ? { evaluationId: evaluation.id, score: evaluation.score, correctItems: evaluation.items.filter((item) => item.evidenceStatus === "confirmed" && item.score === 1).length } : {}),
-          status: evaluation?.status ?? "not-evaluated" as const,
-          totalItems: activity.items.length,
-        };
+        const evaluation = resolveActiveEvaluation(evaluations, String(row.id));
+        return { submissionId: String(row.id), activityId: String(row.activity_id), title: String(row.title), subject: activity.subject, conceptId: String(row.concept_id), submittedAt: String(row.submitted_at), ...(evaluation ? { evaluationId: evaluation.id, score: evaluation.score, correctItems: evaluation.items.filter((item) => item.evidenceStatus === "confirmed" && item.score === 1).length } : {}), status: evaluation?.status ?? "not-evaluated" as const, totalItems: activity.items.length };
       });
-      const summary = states.length === 0
-        ? "No concept evidence has been recorded yet."
-        : `${strengths.length} strength area${strengths.length === 1 ? "" : "s"}, ${needsPractice.length} area${needsPractice.length === 1 ? "" : "s"} needing practice. ${recommendation.conciseReason}`;
-      const report = ReportSnapshotSchema.parse({ id: `report-${studentId}-${randomUUID()}`, studentId, asOf: iso(now, service.repo.clock), conceptStates: states, evidence, strengths, needsPractice, recommendedNextSteps, worksheetSummaries, learningPath: availability, roadmapRevisionIds, recommendation, summary });
-      const artifact = await store.putText(JSON.stringify(report), { source: "local-progress-report", kind: "report-snapshot", studentId });
-      const evaluationSupports = db.prepare(`SELECT a.id FROM artifacts a JOIN evaluations e ON json_extract(a.metadata_json, '$.evaluationId') = e.id JOIN submissions s ON s.id = e.submission_id WHERE s.student_id = ?`).all(studentId) as Array<{ id: string }>;
-      const rawProgress = repo.progressHistory(studentId);
-      const progressSupports = await Promise.all(rawProgress.map((row) => store.putText(JSON.stringify(row), { source: "progress-history", kind: "progress-event", studentId, progressEventId: row.id })));
+      const summary = states.length === 0 ? "No confirmed concept evidence was available by this report cutoff." : `${needsPractice.length} area${needsPractice.length === 1 ? "" : "s"} need attention and ${strengths.length} strength area${strengths.length === 1 ? " is" : "s are"} supported by evidence. ${recommendation.conciseReason}`;
+      const report = ReportSnapshotSchema.parse({ id: `report-${studentId}-${randomUUID()}`, studentId, asOf: cutoff, kind: window.kind, ...(window.period ? { period: window.period } : {}), conceptStates: states, evidence, strengths, needsPractice, recommendedNextSteps, worksheetSummaries, learningPath: availability, roadmapRevisionIds, recommendation, summary });
+      const artifact = await store.putText(JSON.stringify(report), { source: "local-progress-report", kind: "report-snapshot", studentId, reportKind: window.kind, asOf: cutoff });
+      const evaluationSupports = evaluationRows.map((row) => String(row.id));
+      const evaluationArtifacts = evaluationSupports.length > 0 ? db.prepare(`SELECT id FROM artifacts WHERE json_extract(metadata_json,'$.evaluationId') IN (${evaluationSupports.map(() => "?").join(",")})`).all(...evaluationSupports) as Array<{ id: string }> : [];
+      const progressSupports = await Promise.all(progressRows.map((row) => store.putText(JSON.stringify(row), { source: "progress-history", kind: "progress-event", studentId, progressEventId: row.id })));
       const overrideSupports = await Promise.all(directiveRows.map((row) => store.putText(JSON.stringify(row), { source: "adult-history", kind: "override", studentId, overrideId: row.id })));
-      const roadmapSupports = roadmapRevisionIds.length > 0 ? db.prepare(`SELECT artifact_id AS id FROM learner_roadmap_revisions WHERE id IN (${roadmapRevisionIds.map(() => "?").join(",")}) AND artifact_id IS NOT NULL`).all(...roadmapRevisionIds) as Array<{ id: string }> : [];
-      const supportingArtifacts = [...evaluationSupports.map((supporting) => supporting.id), ...progressSupports.map((supporting) => supporting.id), ...overrideSupports.map((supporting) => supporting.id), ...roadmapSupports.map((supporting) => supporting.id)];
+      const supportingArtifacts = [...evaluationArtifacts.map((entry) => entry.id), ...progressSupports.map((entry) => entry.id), ...overrideSupports.map((entry) => entry.id)];
       for (const supportingId of new Set(supportingArtifacts)) await store.addLineageEdge(supportingId, artifact.id, "supports");
       const tx = db.transaction(() => {
         repo.recordArtifact({ id: artifact.id, sha256: artifact.sha256, mediaType: artifact.mediaType, byteLength: artifact.byteLength, relativePath: artifact.relativePath, metadata: artifact.metadata });
         for (const supporting of [...progressSupports, ...overrideSupports]) repo.recordArtifact({ id: supporting.id, sha256: supporting.sha256, mediaType: supporting.mediaType, byteLength: supporting.byteLength, relativePath: supporting.relativePath, metadata: supporting.metadata });
         for (const supportingId of new Set(supportingArtifacts)) repo.addArtifactEdge({ parentArtifactId: supportingId, childArtifactId: artifact.id, relation: "supports" });
-        repo.saveReportSnapshot({ report: { ...report, artifactId: artifact.id }, artifactId: artifact.id });
+        repo.saveReportSnapshot({ report: { ...report, artifactId: artifact.id }, artifactId: artifact.id, reportType: window.kind });
       });
       tx();
       return { report: { ...report, artifactId: artifact.id }, artifact, recommendation };
@@ -912,6 +1046,10 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     },
   };
   return service;
+}
+
+export function createDemoService(options: Omit<LocalServiceOptions, "dataScope"> = {}): LocalService {
+  return createLocalService({ ...options, dataScope: "demo" });
 }
 
 function boundedInt(value: number, min: number, max: number): number { if (!Number.isInteger(value) || value < min || value > max) throw new Error(`value must be an integer between ${min} and ${max}`); return value; }

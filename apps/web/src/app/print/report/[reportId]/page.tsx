@@ -18,9 +18,10 @@ export default async function PrintReport({ params }: { params: Promise<{ report
     <header>
       <p className="eyebrow">Learning Worktable · adult report</p>
       <h1>{student?.displayName ?? report.studentId}&apos;s learning notes</h1>
-      <p>Immutable snapshot prepared {new Date(report.asOf).toLocaleDateString("en-US", { dateStyle: "long" })}</p>
+      <p>{report.period?.label ?? `Evidence through ${new Date(report.asOf).toLocaleDateString("en-US", { dateStyle: "long" })}`} · {report.kind} report</p>
     </header>
 
+    <section className="report-summary report-needs-attention"><h2>Needs attention next</h2>{report.needsPractice.length ? <ul>{report.needsPractice.map((concept) => <li key={concept}>{conceptLabel(concept)}</li>)}</ul> : <p>No area currently meets the needs-practice rule.</p>}{report.recommendedNextSteps.length > 0 && <ul>{report.recommendedNextSteps.map((step) => <li key={step}>{step}</li>)}</ul>}</section>
     <section className="report-summary"><h2>What the evidence says</h2><p>{report.summary}</p></section>
 
     {student && student.reportedCapabilities.length > 0 && <section><h2>Starting context</h2><p><strong>Assessment status:</strong> {student.baselineStatus.replaceAll("-", " ")}</p><p>The following abilities were reported by an adult and used to select starting diagnostics; they were not counted as mastery without confirmed work.</p><ul>{student.reportedCapabilities.map((capability) => <li key={capability}>{capability.replaceAll(".", " · ").replaceAll("-", " ")}</li>)}</ul>{student.baselineNotes && <p><strong>Adult note:</strong> {student.baselineNotes}</p>}</section>}

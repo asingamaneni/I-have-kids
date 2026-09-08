@@ -7,6 +7,7 @@ const runData = join(tmpdir(), `learning-worktable-e2e-${process.pid}`);
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
+  workers: 1,
   use: {
     baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure"
@@ -18,7 +19,9 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       LEARNING_WORKTABLE_DB: join(runData, "learning.db"),
-      LEARNING_WORKTABLE_ARTIFACTS: join(runData, "artifacts")
+      LEARNING_WORKTABLE_ARTIFACTS: join(runData, "artifacts"),
+      CHILD_LEARNING_DEMO_DB_PATH: join(runData, "demo", "learning.db"),
+      CHILD_LEARNING_DEMO_ARTIFACTS_DIR: join(runData, "demo", "artifacts")
     }
   },
   projects: [

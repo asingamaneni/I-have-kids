@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DemoLauncher } from "@/components/DemoLauncher";
 
 export default function HomePage() {
   return <main className="modern-landing">
@@ -12,7 +13,7 @@ export default function HomePage() {
         <Badge variant="secondary" className="hero-tag">Built around one learner</Badge>
         <h1>Learning that grows with them.</h1>
         <p className="landing-intro-modern">Start from what a child can do today, build a visible roadmap for any subject, and keep adding concepts and practice paths as confirmed learning grows—without a rigid grade ceiling.</p>
-        <div className="landing-actions"><Button asChild size="lg"><Link href="/setup">Set up a learner</Link></Button><Button asChild size="lg" variant="outline"><Link href="/child/student-demo-ava">Explore the demo</Link></Button><Button asChild size="lg" variant="ghost"><Link href="/adult/student-demo-ava">Demo adult view</Link></Button></div>
+        <div className="landing-actions"><Button asChild size="lg"><Link href="/setup">Set up a learner</Link></Button><DemoLauncher audience="child" /><DemoLauncher audience="adult" /></div>
         <ul className="landing-trust"><li>No account</li><li>No cloud AI calls</li><li>Local learning history</li></ul>
       </div>
       <aside className="learning-preview" aria-label="Example adaptive learning path">

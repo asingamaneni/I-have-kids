@@ -1,5 +1,7 @@
 # Demonstration narrative
 
-The canonical demo should show: create a learner at an early starting point; generate Math addition within 10 with pictures; store the activity specification, worksheet, and answer specification; submit mixed correct/incorrect work; evaluate per item and identify a mistake pattern; update concept-level evidence; generate comparable activities; show that difficulty does not change prematurely; after sufficient comparable evidence, advance or maintain with the policy reason; generate an English picture activity; inspect artifact history and a parent/teacher report; and apply a human override while preserving audit history.
+The canonical demo runs only in the isolated demo database and artifact store. Initialize or reuse its immutable dataset manifest, then show the actual persisted loop: the synthetic learner profile, picture-based Math work, activity specification and answer contract, mixed correct/incorrect submissions, item evaluation, concept evidence, comparable practice, controlled progression, Language Arts work, artifact lineage, immutable report, and an audited adult override.
+
+Every demo screen and result must remain labeled as synthetic. Never seed or replay these records into the household database, never use the demo learner as a missing-ID fallback, and never reset later demo attempts when initialization runs again.
 
 Every step must use confirmed local results. If a step is unavailable, state the limitation instead of simulating the narrative.

@@ -21,7 +21,10 @@ describe("optional adult PIN proxy", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("protects the adult roadmap endpoint without blocking its child-safe counterpart", () => {
+  it("protects adult household and demo routes without blocking child-safe counterparts", () => {
+    expect(unstable_doesMiddlewareMatch({ config, url: "/adult/student-1/path" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/demo/adult/demo-student/path" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/child/student-1/roadmap" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, url: "/api/adult/students/student-demo-ava/roadmap" })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, url: "/api/students/student-demo-ava/roadmap" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, url: "/api/activities/activity-addition-01" })).toBe(false);
@@ -33,6 +36,12 @@ describe("optional adult PIN proxy", () => {
     expect(response.status).toBeGreaterThanOrEqual(300);
     expect(response.headers.get("location")).toContain("/adult/unlock");
     expect(response.headers.get("location")).toContain(encodeURIComponent("/adult/student-demo-ava/progress"));
+  });
+
+  it("preserves a safe setup return path", async () => {
+    process.env.LEARNING_ADULT_PIN = "2468";
+    const response = await proxy(new NextRequest("http://localhost/setup?from=home"));
+    expect(response.headers.get("location")).toContain(encodeURIComponent("/setup?from=home"));
   });
 
   it("returns JSON authorization errors for protected APIs instead of redirecting mutations", async () => {

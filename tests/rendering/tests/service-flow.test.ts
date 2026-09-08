@@ -9,8 +9,8 @@ describe("web application service flows", () => {
     const root = await mkdtemp(join(tmpdir(), "learning-worktable-"));
     const service = createLocalService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-01-01T00:00:00.000Z" });
     try {
-      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "Kindergarten" });
-      const spec = service.generateActivity({ subject: "math", seed: 401, studentId: "student-test", itemCount: 2 });
+      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "School-age, mixed level" });
+      const spec = service.generateActivity({ subject: "math", conceptId: "math.counting-to-10", seed: 401, studentId: "student-test", itemCount: 2 });
       const stored = await service.validateAndStoreActivity(spec);
       expect(service.repo.listActivities("student-test")).toHaveLength(1);
       const submission = await service.recordDigitalSubmission({ id: "submission-test", activityId: spec.id, studentId: "student-test", responses: spec.items.map((item) => ({ itemId: item.id, value: spec.answerSpecs[item.id]?.type === "integer" ? spec.answerSpecs[item.id].expected : "", capturedAt: "2026-01-01T00:00:00.000Z" })), submittedAt: "2026-01-01T00:00:00.000Z" });
@@ -32,7 +32,7 @@ describe("web application service flows", () => {
     const root = await mkdtemp(join(tmpdir(), "learning-worktable-"));
     const service = createLocalService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-01-01T00:00:00.000Z" });
     try {
-      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "Kindergarten" });
+      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "School-age, mixed level" });
       expect((service.getLearningPath("student-test") as { availability: Array<{ conceptId: string; status: string }> }).availability.find((concept) => concept.conceptId === "math.subtraction-within-10")?.status).toBe("locked");
       await service.applyLearningDirective({ id: "directive-test", studentId: "student-test", conceptId: "math.subtraction-within-10", action: "introduce", reason: "The child separates counters during play.", authorId: "adult-test", requestedStage: "concrete" });
       const spec = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 91, studentId: "student-test", itemCount: 2, representationStage: "concrete" });
@@ -49,7 +49,7 @@ describe("web application service flows", () => {
     const root = await mkdtemp(join(tmpdir(), "learning-worktable-"));
     const service = createLocalService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-01-01T00:00:00.000Z" });
     try {
-      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "Kindergarten" });
+      service.repo.saveStudent({ id: "student-test", displayName: "Test Student", grade: "School-age, mixed level" });
       service.repo.saveConceptState({ studentId: "student-test", conceptId: "math.addition-within-10", step: 0, status: "new", recentScores: [] });
       const override = service.applyOverride({ id: "override-test", studentId: "student-test", conceptId: "math.addition-within-10", targetStep: 3, reason: "Adult observed consistent counting.", authorId: "adult-test" });
       expect((override as { newState: { step: number } }).newState.step).toBe(3);

@@ -35,7 +35,12 @@
       ],
       "assessmentClaims": [
         "math.counts-to-10"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "math.counts-to-10", "stage": "pictorial", "questionnairePrompt": "Can they count a group of up to ten objects and match it to a written number?" }
+      ],
+      "strand": "number-sense",
+      "phase": "foundations"
     },
     {
       "id": "math.addition-within-10",
@@ -84,7 +89,13 @@
       "assessmentClaims": [
         "math.adds-with-objects",
         "math.adds-with-symbols"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "math.adds-with-objects", "stage": "pictorial", "questionnairePrompt": "Can they join two small groups and find how many altogether?" },
+        { "claim": "math.adds-with-symbols", "stage": "abstract", "questionnairePrompt": "Can they solve written addition facts within ten without objects?" }
+      ],
+      "strand": "operations",
+      "phase": "foundations"
     },
     {
       "id": "math.subtraction-within-10",
@@ -132,7 +143,13 @@
       "assessmentClaims": [
         "math.subtracts-with-objects",
         "math.subtracts-with-symbols"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "math.subtracts-with-objects", "stage": "pictorial", "questionnairePrompt": "Can they take away from a small group and find how many remain?" },
+        { "claim": "math.subtracts-with-symbols", "stage": "abstract", "questionnairePrompt": "Can they solve written subtraction facts within ten?" }
+      ],
+      "strand": "operations",
+      "phase": "foundations"
     },
     {
       "id": "math.teen-numbers",
@@ -170,7 +187,12 @@
       ],
       "assessmentClaims": [
         "math.recognizes-teen-numbers"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "math.recognizes-teen-numbers", "stage": "pictorial", "questionnairePrompt": "Can they read, build, and compare numbers from eleven through twenty?" }
+      ],
+      "strand": "number-sense",
+      "phase": "foundations"
     },
     {
       "id": "math.addition-within-20",

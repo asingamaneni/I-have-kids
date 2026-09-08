@@ -1,193 +1,170 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
-test.beforeAll(async ({ request }) => {
+async function seedDemo(request: APIRequestContext) {
   const response = await request.post("/api/demo/seed");
   expect(response.ok()).toBe(true);
-});
+  return response.json() as Promise<{ studentId: string }>;
+}
 
-test("landing and child shelf are reachable", async ({ page }) => {
+async function createLearner(request: APIRequestContext, input: Record<string, unknown> = {}) {
+  const id = `student-e2e-${randomUUID()}`;
+  const response = await request.post("/api/students", { data: { id, displayName: "E2E Learner", selectedSubjects: ["math"], currentCapabilities: ["math.adds-with-objects"], ...input } });
+  expect(response.ok(), await response.text()).toBe(true);
+  return id;
+}
+
+
+test("landing launches an isolated demo and supports same-learner view switching", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Learning that grows with them." })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Set up a learner" })).toHaveAttribute("href", "/setup");
-  await expect(page.getByRole("link", { name: "Explore the demo" })).toHaveAttribute("href", "/child/student-demo-ava");
-  await page.goto("/child/student-demo-ava");
+  await page.getByRole("button", { name: "Explore the demo" }).click();
+  await expect(page).toHaveURL(/\/demo\/child\/student-demo-ava$/);
   await expect(page.getByRole("heading", { name: /Hi, Ava/ })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("Practice shelf")).toBeVisible();
+  await expect(page.getByText(/Demo data/).first()).toBeVisible();
+  await page.getByRole("link", { name: "Switch to adult view" }).click();
+  await expect(page).toHaveURL(/\/demo\/adult\/student-demo-ava$/);
+  await expect(page.getByRole("heading", { name: /Ava Demo's worktable/ })).toBeVisible();
+  await page.getByRole("link", { name: "Switch to child view" }).click();
+  await expect(page).toHaveURL(/\/demo\/child\/student-demo-ava$/);
 });
 
-test("child and adult can see the evolving subject roadmap", async ({ page }) => {
-  await page.goto("/child/student-demo-ava");
-  await expect(page.getByText("My learning map").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /Counting to 10/ })).toBeVisible();
-  await page.getByRole("link", { name: "My learning map" }).click();
-  await expect(page.getByRole("heading", { name: "See how your map grows." })).toBeVisible();
-  const adultPage = await page.context().newPage();
-  await adultPage.goto("/adult/student-demo-ava/path");
-  await expect(adultPage.getByRole("heading", { name: "Learning roadmap" })).toBeVisible();
-  await expect(adultPage.getByText(/roadmap stops/)).toBeVisible();
-  await adultPage.close();
-  const curriculumPage = await page.context().newPage();
-  await curriculumPage.goto("/adult/student-demo-ava/curriculum");
-  await expect(curriculumPage.getByRole("heading", { name: "Roadmap revisions" })).toBeVisible();
-  await expect(curriculumPage.getByText("Growing learning paths")).toBeVisible();
-  await curriculumPage.close();
+test("demo and household learner stores remain separate", async ({ request }) => {
+  await seedDemo(request);
+  const householdId = await createLearner(request, { currentCapabilities: [] });
+  const demoStatus = await (await request.get("/api/demo/status")).json() as { dataScope: string; studentId: string };
+  expect(demoStatus).toMatchObject({ dataScope: "demo", studentId: "student-demo-ava" });
+  const householdTimeline = await request.get(`/api/students/${householdId}/timeline`);
+  expect(householdTimeline.ok()).toBe(true);
+  const demoInHousehold = await request.get("/api/students/student-demo-ava/timeline");
+  expect(demoInHousehold.status()).toBe(404);
 });
 
-test("a local user can report current abilities and receive a starting diagnostic", async ({ page }, testInfo) => {
+test("profile-only setup creates no worksheet until intake is explicit", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "Profile mutation runs once in desktop Chromium");
   await page.goto("/setup");
-  await expect(page.getByText("Social Studies", { exact: true }).first()).toBeVisible();
-  await page.getByLabel("Child's display name").fill("Local Learner");
-  await page.getByLabel(/School placement/).fill("Grade 4, mixed level");
-  await page.getByLabel("Addition within 10 with objects or pictures").check();
-  await page.getByLabel(/Current interests/).fill("Builds number stories with blocks.");
-  await page.getByRole("button", { name: "Create learner and learning roadmap" }).click();
-  await expect(page.getByRole("heading", { name: /Hi, Local/ })).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("link", { name: /Starting check: Picture addition within 10/ }).click();
-  await expect(page.getByRole("heading", { name: "Starting check: Picture addition within 10" })).toBeVisible();
+  await page.getByLabel("Child's display name").fill("Waiting Learner");
+  await page.getByRole("button", { name: "Create learner" }).click();
+  await expect(page.getByRole("heading", { name: /Hi, Waiting/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "No work has been assigned yet" })).toBeVisible();
+  await expect(page.getByText("What needs attention")).toHaveCount(0);
 });
 
-test("practice shelf can be organized by subject and concept", async ({ page }) => {
-  await page.goto("/child/student-demo-ava");
-  await page.getByRole("tab", { name: "By subject" }).click();
-  await expect(page.getByRole("combobox", { name: "Choose subject" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Math" })).toBeVisible();
-  await page.getByRole("tab", { name: "By concept" }).click();
-  await expect(page.getByRole("combobox", { name: "Choose concept" })).toBeVisible();
+test("advanced parent-reported ability becomes the diagnostic focus", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Profile mutation runs once in desktop Chromium");
+  await page.goto("/setup");
+  await page.getByLabel("Child's display name").fill("Advanced Learner");
+  await page.getByLabel("Linear equations").check();
+  await page.getByRole("button", { name: "Create learner" }).click();
+  await expect(page.getByRole("heading", { name: /Hi, Advanced/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Starting check: Linear equations").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Linear equations/ })).toBeVisible();
+  await expect(page.getByText("You are here").first()).toBeVisible();
+  await expect(page.getByText("Counting to 10").first()).not.toBeVisible();
 });
 
-test("locked concepts stay off the child shelf but adults can open a concrete introduction", async ({ page }) => {
-  await page.goto("/child/student-demo-ava");
-  await expect(page.getByRole("link", { name: /Picture subtraction within 10/ })).toHaveCount(0);
-  const blockedPage = await page.context().newPage();
-  await blockedPage.goto("/child/student-demo-ava/activity/activity-subtraction-01");
-  await expect(blockedPage.getByRole("heading", { name: "That page is not on this shelf." })).toBeVisible();
-  await blockedPage.close();
-  const adultPage = await page.context().newPage();
-  await adultPage.goto("/adult/student-demo-ava/path");
-  const subtraction = adultPage.locator('[data-slot="card"]').filter({ has: adultPage.getByText("Subtraction within 10", { exact: true }) });
-  await expect(subtraction.getByText("locked", { exact: true })).toBeVisible();
-  await expect(subtraction.getByRole("button", { name: "Introduce with objects" })).toBeVisible();
-  await adultPage.close();
-});
-
-test("adult can introduce a locked concept with materials without recording mastery", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "Learning-path mutation runs once in desktop Chromium");
-  await page.goto("/adult/student-demo-ava/path");
-  const subtraction = page.locator('[data-slot="card"]').filter({ has: page.getByText("Subtraction within 10", { exact: true }) });
-  await subtraction.getByRole("textbox", { name: "Adult note" }).fill("The child already separates counters during play.");
-  await subtraction.getByRole("button", { name: "Introduce with objects" }).click();
-  await expect(subtraction.getByText("available", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(subtraction.getByText(/without marking prerequisites mastered/)).toBeVisible();
-  const childPage = await page.context().newPage();
-  await childPage.goto("/child/student-demo-ava");
-  const introduced = childPage.getByRole("link", { name: /Picture subtraction within 10/ });
-  await expect(introduced).toHaveCount(1);
-  await introduced.click();
-  await expect(childPage.getByText("Learn with real objects")).toBeVisible();
-  await expect(childPage.getByRole("button", { name: "Next: try the picture page" })).toBeVisible();
-  await childPage.close();
-});
-
-test("child routes never serialize answer contracts or hidden item answers", async ({ page, request }) => {
-  const response = await request.get("/api/activities/activity-addition-01");
-  expect(response.ok()).toBe(true);
-  const activity = await response.json() as { answerSpecs?: unknown; items: Array<Record<string, unknown>> };
-  for (const hiddenField of ["answerSpecs", "scoring", "curriculumVersion", "curriculumRef", "rationale", "sourceMetadata", "generator", "seed"]) expect(activity).not.toHaveProperty(hiddenField);
-  expect(activity.items[0]).not.toHaveProperty("result");
-  const roadmapResponse = await request.get("/api/students/student-demo-ava/roadmap?audience=adult");
-  expect(roadmapResponse.ok()).toBe(true);
-  const roadmap = await roadmapResponse.json() as { audience: string; roadmaps: Array<{ nodes: Array<Record<string, unknown>> }> };
-  expect(roadmap.audience).toBe("child");
-  expect(roadmap.roadmaps.flatMap((entry) => entry.nodes).every((node) => !("reason" in node) && !("recentScore" in node))).toBe(true);
-  await page.goto("/child/student-demo-ava/activity/activity-addition-01");
-  const serialized = await page.locator("script").allTextContents();
-  expect(serialized.join("\n")).not.toContain("answerSpecs");
-  expect(serialized.join("\n")).not.toContain("\"result\":");
-});
-
-test("digital child work is stored, scored, and projected into progress", async ({ page, request }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "Mutation flow runs once in desktop Chromium");
-  const beforeResponse = await request.get("/api/students/student-demo-ava/timeline");
-  const before = await beforeResponse.json() as { timeline: Array<{ kind: string }> };
-  const beforeProgressEvents = before.timeline.filter((entry) => entry.kind === "progress_event").length;
-  await page.goto("/child/student-demo-ava/activity/activity-addition-01");
+test("child current work shows lifecycle, best next work, history, and exact retry", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Submission flow runs once in desktop Chromium");
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-objects"] });
+  await page.goto(`/child/${id}`);
+  await expect(page.getByText("Best next step")).toBeVisible();
+  const start = page.getByRole("link", { name: /Start: Starting check/ }).first();
+  await expect(start).toBeVisible();
+  await start.click();
+  await expect(page).toHaveURL(/\/activity\//);
+  const activityUrl = page.url();
   const responses = page.locator('input[name^="response-"]');
-  await expect(responses).toHaveCount(10);
+  await expect(responses).toHaveCount(20);
   for (let index = 0; index < await responses.count(); index += 1) await responses.nth(index).fill("0");
+  const saved = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/api/submissions"));
   await page.getByRole("button", { name: "Finish activity" }).click();
-  await expect(page.getByRole("heading", { name: "You finished a practice moment." })).toBeVisible({ timeout: 20_000 });
-  const afterResponse = await request.get("/api/students/student-demo-ava/timeline");
-  const after = await afterResponse.json() as { timeline: Array<{ kind: string }> };
-  expect(after.timeline.filter((entry) => entry.kind === "progress_event")).toHaveLength(beforeProgressEvents + 1);
+  const saveResponse = await saved;
+  expect(saveResponse.ok(), await saveResponse.text()).toBe(true);
+  await expect(page.getByRole("heading", { name: "You finished this practice." })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("link", { name: "My history" }).click();
+  await expect(page.getByRole("heading", { name: "My history" })).toBeVisible();
+  await expect(page.getByText("1 attempt")).toBeVisible();
+  const retry = page.getByRole("link", { name: "Try this same worksheet again" });
+  await expect(retry).toHaveAttribute("href", /retryOf=/);
+  await retry.click();
+  await expect(page).toHaveURL(/retryOf=/);
+  expect(new URL(page.url()).pathname).toBe(new URL(activityUrl).pathname);
 });
 
-test("photo work is normalized locally and enters the adult review queue", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "Upload and review mutation runs once in desktop Chromium");
-  await page.goto("/child/student-demo-ava/activity/activity-addition-01");
+test("photo work appears as waiting for validation", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Upload flow runs once in desktop Chromium");
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-objects"] });
+  await page.goto(`/child/${id}`);
+  await page.getByRole("link", { name: /Start: Starting check/ }).first().click();
   await page.getByLabel("Choose photo").setInputFiles(resolve("tests/fixtures/worksheet-upload.png"));
   await page.getByRole("button", { name: "Save to work history" }).click();
-  await expect(page.getByText("Photo saved for adult review. No automatic handwriting reading was used.")).toBeVisible({ timeout: 15_000 });
-  const adultPage = await page.context().newPage();
-  await adultPage.goto("/adult/student-demo-ava/reviews");
-  const reviewedScore = adultPage.getByLabel(/Reviewed score for/).first();
-  const adultEvidence = adultPage.getByLabel(/Adult evidence for/).first();
-  await expect(reviewedScore).toBeVisible({ timeout: 15_000 });
-  await reviewedScore.fill("80");
-  await adultEvidence.fill("Adult checked eight of ten responses against the worksheet.");
-  const confirmation = adultPage.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/api/reviews/") && response.url().endsWith("/confirm"));
-  await adultPage.getByRole("button", { name: "Confirm reviewed score" }).first().click();
-  expect((await confirmation).ok()).toBe(true);
-  await adultPage.reload();
-  await expect(adultPage.getByText("Nothing here yet. New evidence will appear after the next activity.")).toBeVisible({ timeout: 15_000 });
-  await adultPage.close();
+  await expect(page.getByText(/Photo saved for adult review/)).toBeVisible({ timeout: 15_000 });
+  await page.goto(`/child/${id}`);
+  await expect(page.getByText("Waiting for a check")).toBeVisible();
 });
 
-test("print worksheet is render-ready, answer-free, and produces a Letter PDF", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "PDF verification runs once in desktop Chromium");
-  await page.goto("/print/activity/activity-addition-01");
-  await expect(page.getByRole("button", { name: "Print worksheet" })).toBeVisible();
-  await expect(page.locator('[data-render-ready="true"]')).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Adult answer sheet" })).toHaveCount(0);
-  const pdf = await page.pdf({ format: "Letter", printBackground: true });
-  expect(pdf.byteLength).toBeGreaterThan(10_000);
+test("worksheet how-to is child-safe and printable", async ({ page, request }, testInfo) => {
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-symbols"] });
+  await page.goto(`/child/${id}`);
+  await page.getByRole("link", { name: /Start: Starting check/ }).first().click();
+  await page.getByRole("link", { name: "How to learn this" }).click();
+  await expect(page.getByRole("heading", { name: /How .* works|How to/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Print this guide" })).toBeVisible();
+  const serialized = (await page.locator("script").allTextContents()).join("\n");
+  expect(serialized).not.toContain("answerSpecs");
+  if (testInfo.project.name === "chromium") expect((await page.pdf({ format: "Letter", printBackground: true })).byteLength).toBeGreaterThan(8_000);
 });
 
-test("adult answer route is separate from the child worksheet", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium", "Answer-route verification runs once in desktop Chromium");
-  await page.goto("/print/activity/activity-addition-01/answers");
-  await expect(page.getByRole("heading", { name: "Adult answer sheet" })).toBeVisible();
+test("child map defaults to five next steps and can reveal the whole path", async ({ page }) => {
+  await seedDemo(page.request);
+  await page.goto("/demo/child/student-demo-ava/roadmap");
+  await expect(page.getByText("Your current place and the next five steps.")).toBeVisible();
+  await expect(page.getByText("You are here").first()).toBeVisible();
+  await page.getByRole("button", { name: "See the whole path" }).click();
+  await expect(page.getByText("The whole subject path with your place marked.")).toBeVisible();
 });
 
-test("adult worksheet archive shows prior responses and correct answers", async ({ page }) => {
-  await page.goto("/adult/student-demo-ava/worksheets");
-  await expect(page.getByRole("heading", { name: "Worksheet history" })).toBeVisible();
-  const detailPage = await page.context().newPage();
-  await detailPage.goto("/adult/student-demo-ava/worksheets/submission-demo-addition-1");
-  await expect(detailPage.getByRole("heading", { name: "Picture addition within 10" })).toBeVisible();
-  await expect(detailPage.getByRole("columnheader", { name: "Child's response" })).toBeVisible();
-  await expect(detailPage.getByRole("columnheader", { name: "Correct answer or rubric" })).toBeVisible();
-  await expect(detailPage.getByText("70%")).toBeVisible();
-  await detailPage.close();
+test("adult sees the complete top-to-bottom subject map and graph actions", async ({ page, request }) => {
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-objects"] });
+  await page.goto(`/adult/${id}/path`);
+  await expect(page.getByRole("heading", { name: "Learning roadmap" })).toBeVisible();
+  await expect(page.getByText("Complete subject roadmap")).toBeVisible();
+  await page.getByRole("button", { name: /Addition within 10/ }).first().click();
+  await expect(page.getByText(/Actions for Addition within 10/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add extra practice" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Propose a new next step" })).toBeVisible();
 });
 
-test("current report links learning-path evidence to worksheet answers", async ({ page, request }, testInfo) => {
+test("adult review form uses subject-aware concept selection", async ({ page, request }) => {
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-objects"] });
+  await page.goto(`/adult/${id}/reviews`);
+  await expect(page.getByRole("combobox", { name: "Subject" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Concept" })).toBeVisible();
+});
+
+test("adult reports show newest first and support monthly and quarterly snapshots", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "Report mutation runs once in desktop Chromium");
-  const response = await request.post("/api/reports", { data: { studentId: "student-demo-ava" } });
-  expect(response.ok()).toBe(true);
-  const body = await response.json() as { report: { id: string; worksheetSummaries: unknown[]; learningPath: unknown[] } };
-  expect(body.report.worksheetSummaries.length).toBeGreaterThan(0);
-  expect(body.report.learningPath.length).toBeGreaterThan(0);
-  await page.goto(`/print/report/${encodeURIComponent(body.report.id)}`);
-  await expect(page.getByRole("heading", { name: "Capability-based learning path" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Recent worksheets" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Responses and correct answers" }).first()).toBeVisible();
+  const id = await createLearner(request, { currentCapabilities: ["math.adds-with-objects"] });
+  const date = new Date().toISOString().slice(0, 10);
+  for (const kind of ["monthly", "quarterly"] as const) {
+    const response = await request.post("/api/reports", { data: { studentId: id, kind, selectedDate: date, timeZone: "UTC" } });
+    expect(response.ok(), await response.text()).toBe(true);
+  }
+  await page.goto(`/adult/${id}/reports`);
+  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+  await expect(page.getByText("Needs attention").first()).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Report type" })).toBeVisible();
+  await expect(page.getByLabel("Report date")).toBeVisible();
 });
 
-test("adult view exposes the evidence trail and print report link", async ({ page }) => {
-  await page.goto("/adult/student-demo-ava");
-  await expect(page.getByRole("heading", { name: /Ava Demo's worktable/ })).toBeVisible();
-  await expect(page.getByText("Evidence trail")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open latest report" })).toBeVisible();
+test("persistent view switch remains visible and tappable on mobile", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "Mobile-only navigation check");
+  const id = await createLearner(request, { currentCapabilities: [] });
+  await page.goto(`/child/${id}`);
+  const switcher = page.getByRole("link", { name: "Switch to adult view" });
+  await expect(switcher).toBeInViewport();
+  await switcher.click();
+  await expect(page).toHaveURL(new RegExp(`/adult/${id}$`));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

@@ -12,9 +12,19 @@ describe("deterministic generators", () => {
     expect(a).toEqual(b);
     expect(a.items.every((item) => item.kind === "picture-addition-subtraction" && item.result <= 10)).toBe(true);
     expect(a).toMatchObject({ studentId: "unassigned", generator: { name: "addition-within-10", version: "1.0" }, activityType: "practice" });
-    expect(a.comparabilityKey).toContain("items:5");
+    expect(a.items).toHaveLength(20);
+    expect(new Set(a.items.map((item) => item.id)).size).toBe(20);
+    expect(a.comparabilityKey).toContain("items:20");
+    expect(a.childGuide?.example?.prompt).toBeTruthy();
   });
-  it("repeats beginning sounds for a seed", () => {
+  it("defaults every generator to twenty unique items and honors overrides", () => {
+    for (const generate of [generateAdditionWithinTen, generateEnglishBeginningSounds, generateHandwritingWriting, generateReadingForDetail, generateScienceObservation]) {
+      const activity = generate({ seed: 7 });
+      expect(activity.items).toHaveLength(20);
+      expect(new Set(activity.items.map((item) => item.id)).size).toBe(20);
+      expect(activity.childGuide?.conceptSummary).toBeTruthy();
+      expect(generate({ seed: 7, itemCount: 7 }).items).toHaveLength(7);
+    }
     expect(generateEnglishBeginningSounds({ seed: 7 })).toEqual(generateEnglishBeginningSounds({ seed: 7 }));
   });
   it("covers every registered pack with validated, child-safe output", () => {

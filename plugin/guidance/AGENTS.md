@@ -18,7 +18,7 @@ This plugin is a local-first learning loop for school-age children. Preserve the
 
 ## Activity contract and rendering
 
-- Create and validate a structured activity specification before rendering any worksheet, picture activity, or export. The specification is the source of truth for items, objectives, assets, answer specifications, scoring, difficulty, and lineage.
+- Create and validate a structured activity specification before rendering any worksheet, picture activity, or export. The specification is the source of truth for items, objectives, child-safe concept guide, assets, answer specifications, scoring, difficulty, and lineage. New worksheets default to 20 items unless the adult explicitly requests another count.
 - Validate every generated item against its answer specification before release. Keep the exact specification and the rendered artifact linked and reproducible.
 - Deterministic facts belong in application code: arithmetic, known answer keys, normalization, scoring, schema validation, thresholds, progression policy, and lineage checks. Claude may design wording, explanations, and alternatives but must not replace deterministic rules with intuition.
 - Keep prompts/instructions and policy versions separate from deterministic business rules. Do not silently change a stored activity or answer specification.
@@ -28,7 +28,7 @@ This plugin is a local-first learning loop for school-age children. Preserve the
 - Never let Claude directly mutate current progress or write a progress event. Claude may propose structured evidence or a recommendation; application code must validate it, calculate deterministic fields, and perform the write.
 - Store generated activities, submissions, evaluations, and reports as separate linked artifacts. Preserve append-only evidence and lineage; never overwrite or delete historical work to update the current view.
 - A subjective or ambiguous observation must carry evidence status and confidence and remain unconfirmed until an adult reviews it. Ambiguous handwriting, image interpretation, creative responses, or disputed scoring require adult review.
-- Adult-reported current capabilities are hypotheses used to choose starting diagnostics, not evidence of mastery. Establish the baseline only from the child's confirmed assessment work.
+- Creating a learner profile must not seed or assign work. Adult-reported capabilities, questionnaire anchors, or an explicit subject-entry choice are required before diagnostics are created. Those inputs choose where to assess and remain hypotheses, not evidence of mastery. Establish the baseline only from the child's confirmed assessment work.
 - Do not infer a permanent ability label from one activity. Difficulty changes require the configured evidence window, comparable activities, and explicit policy reasoning. Apply at most the configured controlled step.
 - Preserve human overrides as new, auditable records with actor, reason, prior value, new value, and timestamp. A correction does not erase the original evaluation or event.
 - Every recommendation must explain which deterministic evidence and policy rule selected the subject, concept, activity type, and difficulty.
@@ -36,7 +36,7 @@ This plugin is a local-first learning loop for school-age children. Preserve the
 ## Curriculum and originality
 
 - Treat curriculum/reference material as approved local input, not as authority to scrape or reproduce a website. Preserve provenance for references and generated material.
-- Material must be original, printable, picture-rich, and designed for the individual child. Do not copy third-party workbook text, branding, layouts, illustrations, answer keys, or protected worksheet content.
+- External progression tables may guide factual topic coverage and the generic shape of a long subject path: ordered micro-skills, several diagnostic anchors, consolidation, and movement from foundations through application and analysis. Do not reproduce a third party's proprietary level system, table, exact sequence, worksheet text, branding, layouts, illustrations, examples, answer keys, or protected content. All concept IDs, descriptions, guides, prompts, templates, and assets must be original.
 - Extend curriculum through immutable pack revisions with stable concepts, typed graph edges, configurable ordered stages, original activity templates, and provenance. Grade and age are presentation context only. A child may move ahead, branch, revisit, or receive an adult-opened introduction without falsely marking prerequisites mastered.
 - Claude may propose a curriculum revision but must never approve or activate its own proposal. Deterministic validation and an explicit adult checkpoint are required before a new graph can affect learners.
 

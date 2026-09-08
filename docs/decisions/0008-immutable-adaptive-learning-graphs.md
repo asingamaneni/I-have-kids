@@ -16,11 +16,13 @@ Each learner receives a projected roadmap that overlays confirmed evidence, dire
 
 Claude may propose a curriculum revision but cannot approve or activate it. Deterministic validation rejects cycles, dangling references, unsupported components, missing answer contracts, and removal of historical concept IDs. An adult decision and separate activation event are required. Rollback activates an older immutable revision rather than editing history.
 
-Child projections omit scores, confidence, adult rationale, locked analytics, and private notes. Adult projections retain the complete graph and evidence reasons.
+Child projections omit scores, confidence, adult rationale, locked analytics, revision metadata, and private notes. The default child view collapses completed history and shows the current placement plus five mainline steps; a child may deliberately open the complete child-safe path with a clear “You are here” marker. Adult projections render the complete approved subject progression top-to-bottom, retain evidence reasons, and expose node-level extra-practice, reassessment, prioritization, and curriculum-proposal entry points.
 
 ## Consequences
 
 - Subjects and stages are registry-backed IDs rather than closed enums.
 - The learning roadmap can grow without using grade as a ceiling.
 - Existing learner data, artifacts, hashes, and concept IDs remain valid.
+- Every subject pack follows the same reference architecture: ordered micro-skills grouped into phases/strands, several diagnostic anchors, consolidation/review links, and an open-ended path from foundations through fluency, comprehension/application, analysis, and advanced work.
+- The supplied Math and English progression tables inform breadth and structural continuity only. Product concept IDs, grouping, descriptions, guides, templates, questions, illustrations, and layouts remain original; no proprietary level system or worksheet material is copied.
 - Adding a wholly new interaction type still requires a registered contract, scorer/evaluator, and renderer; ordinary new curricula use the generic activity primitives.

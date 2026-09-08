@@ -1,4 +1,14 @@
 import { NextResponse } from "next/server";
-import { seedDemo } from "@child-learning/demo";
-import type { DemoSeedOptions } from "@child-learning/demo";
-export async function POST() { try { const options: DemoSeedOptions = {}; const databasePath = process.env.CHILD_LEARNING_DB_PATH ?? process.env.KINDERGARTEN_DB_PATH ?? process.env.LEARNING_WORKTABLE_DB; const artifactsDir = process.env.CHILD_LEARNING_ARTIFACTS_DIR ?? process.env.KINDERGARTEN_ARTIFACTS_DIR ?? process.env.LEARNING_WORKTABLE_ARTIFACTS; if (databasePath) options.databasePath = databasePath; if (artifactsDir) options.artifactsDir = artifactsDir; const result = await seedDemo(options); return NextResponse.json({ ok: true, ...result }); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Seed failed" }, { status: 500 }); } }
+import { createDemoService } from "@child-learning/mcp-server";
+
+export async function POST() {
+  const service = createDemoService();
+  try {
+    const result = await service.initializeDemo();
+    return NextResponse.json({ ok: true, ...result as Record<string, unknown> });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Seed failed" }, { status: 500 });
+  } finally {
+    service.close();
+  }
+}

@@ -5,6 +5,7 @@ export * from "./recommendations.js";
 export * from "./curriculum.js";
 export * from "./registry.js";
 export * from "./roadmap.js";
+export * from "./activity-projection.js";
 export * from "./sample-packs.js";
 
 import type { ActivitySpec, CurriculumDefinition, StudentConceptState } from "@child-learning/contracts";

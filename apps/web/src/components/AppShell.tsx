@@ -2,13 +2,17 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Student } from "@child-learning/contracts";
+import { adultHomeRoute, childHistoryRoute, childHomeRoute, childRoadmapRoute, type LearnerRouteScope } from "@/lib/routes";
 
-export function AppShell({ children, student, adult = false }: { children: ReactNode; student?: Student; adult?: boolean }) {
-  const prefix = student ? (adult ? `/adult/${student.id}` : `/child/${student.id}`) : "/";
+export function AppShell({ children, student, adult = false, routeScope }: { children: ReactNode; student?: Student; adult?: boolean; routeScope?: LearnerRouteScope }) {
+  const scope = routeScope ?? (student?.dataScope === "demo" ? "demo" : "household");
+  const childHome = student ? childHomeRoute(student.id, scope) : "/";
+  const adultHome = student ? adultHomeRoute(student.id, scope) : "/";
+  const prefix = adult ? adultHome : childHome;
   return <div className={`app-frame ${adult ? "adult-frame" : "child-frame"}`}>
-    <header className="topbar"><Link className="brand" href={prefix}><Image className="brand-logo" src="/icon.svg" width={34} height={34} alt="" priority /><span>Learning Worktable</span></Link>{student && <div className="topbar-student"><span>{adult ? "Adult view" : "Child view"}</span><strong>{student.displayName}</strong></div>}</header>
-    {!adult && student && <nav className="child-nav" aria-label="Child navigation"><Link href={`/child/${student.id}`}>My worktable</Link><Link href={`/child/${student.id}/roadmap`}>My learning map</Link></nav>}
-    {adult && student && <nav className="adult-nav" aria-label="Adult navigation"><Link href={`/adult/${student.id}`}>Overview</Link><Link href={`/adult/${student.id}/progress`}>Progress</Link><Link href={`/adult/${student.id}/path`}>Learning roadmap</Link><Link href={`/adult/${student.id}/curriculum`}>Curriculum</Link><Link href={`/adult/${student.id}/history`}>History</Link><Link href={`/adult/${student.id}/worksheets`}>Worksheets</Link><Link href={`/adult/${student.id}/reviews`}>Reviews</Link><Link href={`/adult/${student.id}/reports`}>Reports</Link><Link href={`/adult/${student.id}/settings`}>Settings</Link></nav>}
+    <header className="topbar"><Link className="brand" href={prefix}><Image className="brand-logo" src="/icon.svg" width={34} height={34} alt="" priority /><span>Learning Worktable</span></Link>{student && <div className="topbar-actions"><div className="topbar-student"><span>{adult ? "Adult view" : "Child view"}</span><strong>{student.displayName}</strong></div><Link className="view-switch" href={adult ? childHome : adultHome}>{adult ? "Switch to child view" : "Switch to adult view"}</Link></div>}</header>
+    {!adult && student && <nav className="child-nav" aria-label="Child navigation"><Link href={childHome}>My worktable</Link><Link href={childRoadmapRoute(student.id, scope)}>My learning map</Link><Link href={childHistoryRoute(student.id, scope)}>My history</Link></nav>}
+    {adult && student && <nav className="adult-nav" aria-label="Adult navigation"><Link href={adultHome}>Overview</Link><Link href={`${adultHome}/progress`}>Progress</Link><Link href={`${adultHome}/path`}>Learning roadmap</Link>{scope === "household" && <Link href={`${adultHome}/curriculum`}>Curriculum</Link>}<Link href={`${adultHome}/history`}>History</Link>{scope === "household" && <><Link href={`${adultHome}/worksheets`}>Worksheets</Link><Link href={`${adultHome}/reviews`}>Reviews</Link><Link href={`${adultHome}/reports`}>Reports</Link><Link href={`${adultHome}/settings`}>Settings</Link></>}</nav>}
     {children}
   </div>;
 }

@@ -41,6 +41,21 @@ export const SourceMetadataSchema = z.object({
 
 export const CapabilityClaimSchema = RegistryIdSchema;
 export type CapabilityClaim = z.infer<typeof CapabilityClaimSchema>;
+export const DEFAULT_ACTIVITY_ITEM_COUNT = 20;
+export const LearnerDataScopeSchema = z.enum(["household", "demo", "legacy-mixed"]);
+export type LearnerDataScope = z.infer<typeof LearnerDataScopeSchema>;
+export const BaselineStatusSchema = z.enum(["awaiting-intake", "unassessed", "diagnostic-in-progress", "established"]);
+export const IntakeAnchorSchema = z.object({
+  subject: SubjectSchema,
+  capabilityId: CapabilityClaimSchema.optional(),
+  entryDiagnostic: z.boolean().default(false),
+}).refine((value) => Boolean(value.capabilityId) !== value.entryDiagnostic, { message: "Choose either a capability or the subject entry diagnostic." });
+export const LearnerIntakeSchema = z.object({
+  observedCapabilities: z.array(CapabilityClaimSchema).max(100).default([]),
+  questionnaireAnchors: z.array(IntakeAnchorSchema).max(30).default([]),
+  source: z.enum(["adult-observation", "questionnaire", "combined"]).default("adult-observation"),
+}).strict();
+export type LearnerIntake = z.infer<typeof LearnerIntakeSchema>;
 
 export const StudentSchema = z.object({
   id: IdSchema,
@@ -54,12 +69,14 @@ export const StudentSchema = z.object({
   selectedSubjects: z.array(SubjectSchema).default([]),
   reportedCapabilities: z.array(CapabilityClaimSchema).default([]),
   baselineNotes: z.string().min(1).optional(),
-  baselineStatus: z.enum(["unassessed", "diagnostic-in-progress", "established"]).default("unassessed"),
+  baselineStatus: BaselineStatusSchema.default("awaiting-intake"),
+  dataScope: LearnerDataScopeSchema.default("household"),
+  sourceDatasetId: IdSchema.optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
 export type Student = z.infer<typeof StudentSchema>;
-export const StudentCreateRequestSchema = z.object({ id: IdSchema.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), interests: z.array(z.string().min(1)).max(30).optional(), learningGoals: z.array(z.string().min(1)).max(30).optional(), selectedSubjects: z.array(SubjectSchema).max(30).optional(), currentCapabilities: z.array(CapabilityClaimSchema).max(100).optional(), baselineNotes: z.string().min(1).max(2000).optional() }).strict();
+export const StudentCreateRequestSchema = z.object({ id: IdSchema.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), interests: z.array(z.string().min(1)).max(30).optional(), learningGoals: z.array(z.string().min(1)).max(30).optional(), selectedSubjects: z.array(SubjectSchema).max(30).optional(), currentCapabilities: z.array(CapabilityClaimSchema).max(100).optional(), intake: LearnerIntakeSchema.optional(), baselineNotes: z.string().min(1).max(2000).optional() }).strict();
 export type StudentCreateRequest = z.infer<typeof StudentCreateRequestSchema>;
 
 export const ActivityKindSchema = z.enum([
@@ -222,6 +239,16 @@ export const CurriculumReferenceSchema = z.object({
   revisionId: IdSchema,
   nodeRevisionId: IdSchema,
 });
+export const ChildGuideSchema = z.object({
+  title: z.string().min(1),
+  conceptSummary: z.string().min(1),
+  steps: z.array(z.string().min(1)).min(1),
+  example: z.object({ prompt: z.string().min(1), explanation: z.string().min(1) }).optional(),
+  remember: z.string().min(1).optional(),
+  visualAssetRefs: z.array(z.string().min(1)).default([]),
+  printable: z.boolean().default(true),
+});
+export type ChildGuide = z.infer<typeof ChildGuideSchema>;
 
 export const ActivitySpecSchema = z.object({
   schemaVersion: z.literal("1.0"),
@@ -238,6 +265,7 @@ export const ActivitySpecSchema = z.object({
   deliveryMode: DeliveryModeSchema.optional(),
   evidencePurpose: EvidencePurposeSchema.optional(),
   presentation: HandsOnPresentationSchema.optional(),
+  childGuide: ChildGuideSchema.optional(),
   curriculumVersion: z.string().min(1).optional(),
   curriculumRef: CurriculumReferenceSchema.optional(),
   visualSupport: VisualSupportSchema.default(true),
@@ -305,6 +333,7 @@ export const ChildActivitySpecSchema = ActivitySpecSchema.pick({
   deliveryMode: true,
   visualSupport: true,
   instructions: true,
+  childGuide: true,
   createdAt: true,
 }).extend({
   items: z.array(ChildActivityItemSchema).min(1).max(40),
@@ -332,8 +361,23 @@ export const SubmissionSchema = z.object({
   responses: SubmissionResponsesSchema,
   submittedAt: IsoDateTimeSchema,
   artifactId: IdSchema.optional(),
+  retryOfSubmissionId: IdSchema.optional(),
 });
 export type Submission = z.infer<typeof SubmissionSchema>;
+export const ActivityLifecycleStatusSchema = z.enum(["not-attempted", "awaiting-validation", "corrections-needed", "complete"]);
+export type ActivityLifecycleStatus = z.infer<typeof ActivityLifecycleStatusSchema>;
+export const ChildActivityLifecycleSchema = z.object({
+  activity: ChildActivitySpecSchema,
+  status: ActivityLifecycleStatusSchema,
+  statusLabel: z.string().min(1),
+  actionLabel: z.string().min(1),
+  attemptCount: z.number().int().min(0),
+  latestSubmissionId: IdSchema.optional(),
+  latestAttemptAt: IsoDateTimeSchema.optional(),
+  recommended: z.boolean().default(false),
+  recommendationRank: z.number().int().positive().optional(),
+});
+export type ChildActivityLifecycle = z.infer<typeof ChildActivityLifecycleSchema>;
 
 export const EvaluationItemSchema = z.object({
   itemId: IdSchema,
@@ -427,7 +471,7 @@ export type Recommendation = z.infer<typeof RecommendationSchema>;
 export const ArtifactLineageSchema = z.object({
   artifactId: IdSchema,
   parentArtifactId: IdSchema.optional(),
-  relation: z.enum(["derived-from", "generated-from", "submitted-from", "evaluated-from", "corrected-from", "exported-from", "supports", "revises", "activates", "projects"]).default("derived-from"),
+  relation: z.enum(["derived-from", "generated-from", "submitted-from", "retry-of", "evaluated-from", "corrected-from", "exported-from", "supports", "revises", "activates", "projects"]).default("derived-from"),
   operation: z.enum(["generated", "submitted", "evaluated", "corrected", "exported", "overridden", "reviewed", "proposed", "approved", "activated", "reconciled"]).default("generated"),
   actor: z.enum(["system", "student", "caregiver", "teacher", "claude_code_assisted"]).default("system"),
   createdAt: IsoDateTimeSchema,
@@ -467,10 +511,19 @@ export const ReportWorksheetSummarySchema = z.object({
   correctItems: z.number().int().min(0).optional(),
   totalItems: z.number().int().min(0),
 });
+export const ReportKindSchema = z.enum(["current", "monthly", "quarterly"]);
+export const ReportPeriodSchema = z.object({
+  startInclusive: IsoDateTimeSchema,
+  endExclusive: IsoDateTimeSchema,
+  timeZone: z.string().min(1),
+  label: z.string().min(1),
+}).refine((period) => Date.parse(period.startInclusive) < Date.parse(period.endExclusive), { message: "Report period must end after it starts." });
 export const ReportSnapshotSchema = z.object({
   id: IdSchema,
   studentId: IdSchema,
   asOf: IsoDateTimeSchema,
+  kind: ReportKindSchema.default("current"),
+  period: ReportPeriodSchema.optional(),
   conceptStates: z.array(StudentConceptStateSchema),
   evidence: z.array(ReportEvidenceSchema).default([]),
   strengths: z.array(z.string()).default([]),
@@ -482,12 +535,20 @@ export const ReportSnapshotSchema = z.object({
   recommendation: RecommendationSchema.optional(),
   summary: z.string().min(1),
   artifactId: IdSchema.optional(),
+}).superRefine((report, context) => {
+  if (report.kind !== "current" && !report.period) context.addIssue({ code: "custom", message: `${report.kind} reports require a period`, path: ["period"] });
 });
 export type ReportSnapshot = z.infer<typeof ReportSnapshotSchema>;
 
+export const CurriculumAssessmentTargetSchema = z.object({
+  claim: CapabilityClaimSchema,
+  stage: RepresentationStageSchema,
+  questionnairePrompt: z.string().min(1).optional(),
+});
 export const CurriculumStageSchema = z.object({
   stage: RepresentationStageSchema,
   title: z.string().min(1).optional(),
+  childGuide: ChildGuideSchema.optional(),
   deliveryMode: DeliveryModeSchema,
   evidencePurpose: EvidencePurposeSchema,
   generator: RegistryIdSchema,
@@ -510,6 +571,11 @@ export const CurriculumConceptSchema = z.object({
   branchKind: z.enum(["core", "extension", "review", "interest"]).default("core"),
   advisoryAgeRange: z.object({ minimum: z.number().int().min(3).max(21).optional(), maximum: z.number().int().min(3).max(21).optional() }).optional(),
   assessmentClaims: z.array(CapabilityClaimSchema).default([]),
+  assessmentTargets: z.array(CurriculumAssessmentTargetSchema).default([]),
+  strand: RegistryIdSchema.optional(),
+  phase: RegistryIdSchema.optional(),
+  advisoryPracticeMinutes: z.number().int().min(1).max(180).optional(),
+  consolidation: z.boolean().default(false),
   templateIds: z.array(IdSchema).default([]),
   allowEarlyIntroduction: z.boolean().default(true),
   stages: z.array(CurriculumStageSchema).min(1).default([{ stage: "pictorial", deliveryMode: "worksheet", evidencePurpose: "mastery", generator: "default", evaluator: "deterministic", renderer: "worksheet", activityKinds: [], minimumConfirmed: 3, minimumAverage: 0.9, difficultyParameters: {} }]),
@@ -538,6 +604,7 @@ export const CurriculumActivityTemplateSchema = z.object({
   title: z.string().min(1),
   objectives: z.array(z.string().min(1)).min(1),
   instructions: z.array(z.string().min(1)).min(1),
+  childGuide: ChildGuideSchema.optional(),
   activityType: ActivityTypeSchema.default("practice"),
   estimatedMinutes: z.number().int().min(1).max(180).default(15),
   items: z.array(ActivityItemSchema).min(1).max(40),
@@ -643,9 +710,9 @@ export const ChildLearnerRoadmapSchema = LearnerRoadmapSchema.omit({ nodes: true
 });
 export type ChildLearnerRoadmap = z.infer<typeof ChildLearnerRoadmapSchema>;
 export function toChildLearnerRoadmap(roadmap: LearnerRoadmap): ChildLearnerRoadmap {
-  const nodes = roadmap.nodes.filter((node) => node.status !== "locked" && node.status !== "deferred").map((node) => ({
+  const nodes = roadmap.nodes.filter((node) => node.status !== "deferred").map((node) => ({
     id: node.id, conceptId: node.conceptId, subject: node.subject, title: node.title, description: node.description,
-    stage: node.stage, status: node.status, branchKind: node.branchKind, depth: node.depth, reviewDue: node.reviewDue,
+    stage: node.stage, status: node.status === "locked" ? "planned" as const : node.status, branchKind: node.branchKind, depth: node.depth, reviewDue: node.reviewDue,
     ...(node.parentConceptId ? { parentConceptId: node.parentConceptId } : {}), ...(node.rejoinsConceptId ? { rejoinsConceptId: node.rejoinsConceptId } : {}),
     message: node.status === "completed" ? "Completed" : node.status === "current" ? "You are working here" : node.branchKind === "extra-practice" || node.branchKind === "review" ? "A practice stop" : "Coming next",
   }));

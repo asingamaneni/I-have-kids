@@ -6,9 +6,9 @@ Accepted.
 
 ## Decision
 
-A new learner may begin from an adult's description of capabilities observed today rather than being forced through every entry-level activity. Setup offers structured capability statements across math, language, reasoning, and science plus an optional free-text observation.
+A new learner profile receives no seeded activity. An adult first supplies structured capabilities observed today, completes a per-subject starting questionnaire, or explicitly chooses a subject-entry diagnostic. Setup also accepts optional free-text context, but narrative notes do not select capabilities by themselves.
 
-These statements are stored as **reported capabilities**, not as progress evidence. They select up to one short diagnostic starting point per subject at the matching pictorial or abstract stage. The application appends an `assess` learning directive so the diagnostic can be shown even when normal prerequisites are not yet recorded.
+These answers are stored as **reported capabilities**, not as progress evidence. Curriculum-owned assessment anchors select a diagnostic neighborhood near the reported level, normally one primary target per selected subject. The application appends an `assess` learning directive so the diagnostic can be shown even when normal prerequisites are not yet recorded. School placement can shape presentation but never supplies mastery.
 
 An assessment directive:
 
@@ -19,7 +19,7 @@ An assessment directive:
 - remains subject to deterministic scoring or explicit human review;
 - establishes the baseline only after every starting diagnostic has a final, confirmed evaluation.
 
-If the adult does not state any current capability, the learner begins with a concrete counting exploration. Assessment results then drive the same concrete-to-pictorial-to-abstract availability policy as all later work.
+If the adult provides no structured capability or questionnaire anchor, the learner remains `awaiting-intake`. No worksheet, directive, concept state, or false current roadmap node is created. An adult must later complete intake or explicitly request a subject-entry diagnostic.
 
 ## Consequences
 

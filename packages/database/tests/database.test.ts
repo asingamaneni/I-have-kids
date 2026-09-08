@@ -16,7 +16,7 @@ describe("database persistence", () => {
     const db = setup();
     migrateDatabase(db);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
-    for (const table of ["students", "activities", "artifacts", "artifact_edges", "submissions", "responses", "evaluations", "evidence", "progress_events", "student_concept_state", "recommendations", "recommendation_candidates", "human_overrides", "report_snapshots", "operation_runs", "curriculum_revisions", "curriculum_proposals", "curriculum_decisions", "curriculum_activations", "learner_roadmap_revisions", "roadmap_reconciliation_runs"]) {
+    for (const table of ["students", "activities", "artifacts", "artifact_edges", "submissions", "responses", "evaluations", "evidence", "progress_events", "student_concept_state", "recommendations", "recommendation_candidates", "human_overrides", "report_snapshots", "operation_runs", "curriculum_revisions", "curriculum_proposals", "curriculum_decisions", "curriculum_activations", "learner_roadmap_revisions", "roadmap_reconciliation_runs", "synthetic_datasets"]) {
       expect(tables.map((entry) => entry.name)).toContain(table);
     }
     db.close();
@@ -53,6 +53,25 @@ describe("database persistence", () => {
     expect(repo.getLatestLearnerRoadmap("s1", "social-studies")?.id).toBe("roadmap-1");
     expect(() => db.prepare("UPDATE curriculum_revisions SET title = 'Changed' WHERE id = 'pack-r1'").run()).toThrow(/append-only/);
     expect(() => db.prepare("DELETE FROM learner_roadmap_revisions WHERE id = 'roadmap-1'").run()).toThrow(/append-only/);
+    db.close();
+  });
+
+  it("preserves data scope and records immutable retry lineage", () => {
+    const db = setup();
+    const repo = new LearningRepository(db, () => "2026-01-01T00:00:00.000Z");
+    repo.saveStudent({ id: "s1", displayName: "Test" });
+    expect(repo.getStudent("s1")?.data_scope).toBe("household");
+    expect(() => repo.saveStudent({ id: "s1", displayName: "Changed", dataScope: "demo" })).toThrow(/scope/);
+    expect(() => repo.saveStudent({ id: "synthetic-demo-v2-student", displayName: "Reserved" })).toThrow(/reserved/);
+    const spec = { ...generateAdditionWithinTen({ seed: 1, studentId: "s1", itemCount: 2 }), id: "a1" };
+    repo.saveActivity({ id: "a1", studentId: "s1", specification: spec });
+    const first = repo.recordSubmission({ id: "sub1", studentId: "s1", activityId: "a1" });
+    const retry = repo.recordSubmission({ id: "sub2", studentId: "s1", activityId: "a1", retryOfSubmissionId: String(first.id) });
+    expect(retry.attempt_number).toBe(2);
+    expect(retry.retry_of_submission_id).toBe("sub1");
+    repo.recordSyntheticDataset({ id: "demo-v2", version: "2", studentId: "s1", manifest: { activityIds: ["a1"] } });
+    expect(repo.getSyntheticDataset("demo-v2")?.version).toBe("2");
+    expect(() => db.prepare("DELETE FROM synthetic_datasets WHERE id = 'demo-v2'").run()).toThrow(/append-only/);
     db.close();
   });
 

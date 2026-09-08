@@ -123,17 +123,35 @@ export function worksheetTemplateFor(activity: WorksheetActivity): string {
   }
 }
 
-function maximumPictureCount(activity: WorksheetActivity): number {
-  return Math.max(0, ...activity.items.map((item) => item.kind === "picture-addition-subtraction" ? item.leftCount + item.rightCount : 0));
+export interface WorksheetLayoutProfile {
+  key: string;
+  pageSize: number;
+  columns: 1 | 2 | 3 | 4 | 5;
+  className: string;
+}
+
+export interface WorksheetPrintPage {
+  items: WorksheetItem[];
+  startIndex: number;
+  layout: WorksheetLayoutProfile;
+}
+
+export function worksheetLayoutForItem(item: WorksheetItem): WorksheetLayoutProfile {
+  if (item.kind === "equation" || item.kind === "numeric-response") return { key: "compact-number", pageSize: 20, columns: 5, className: "worksheet-items-math worksheet-items-compact worksheet-items-five-column" };
+  if (item.kind === "number-choice") return { key: "number-choice", pageSize: 12, columns: 3, className: "worksheet-items-math worksheet-items-compact worksheet-items-three-column" };
+  if (item.kind === "selected-response" || item.kind === "phonics-picture-word") return { key: "compact-choice", pageSize: 12, columns: 3, className: "worksheet-items-standard worksheet-items-compact worksheet-items-three-column" };
+  if (item.kind === "picture-addition-subtraction") {
+    const total = item.leftCount + item.rightCount;
+    if (total > 12) return { key: "large-picture", pageSize: 5, columns: 1, className: "worksheet-items-math worksheet-items-one-column" };
+    return { key: "small-picture", pageSize: 9, columns: 3, className: "worksheet-items-math worksheet-items-three-column" };
+  }
+  if (item.kind === "equal-groups-fair-sharing") return { key: "group-model", pageSize: 6, columns: 2, className: "worksheet-items-math worksheet-items-two-column" };
+  if (item.kind === "short-response" || item.kind === "sequencing-reasoning" || item.kind === "ordering") return { key: "short-response", pageSize: 8, columns: 2, className: "worksheet-items-standard worksheet-items-two-column" };
+  return { key: "full-response", pageSize: 4, columns: 1, className: "worksheet-items-standard worksheet-items-one-column" };
 }
 
 export function worksheetPageSize(activity: WorksheetActivity): number {
-  if (activity.subject !== "math") return 4;
-  const firstKind = activity.items[0]?.kind;
-  if (firstKind === "picture-addition-subtraction") return maximumPictureCount(activity) > 12 ? 5 : 10;
-  if (firstKind === "equation" || firstKind === "number-choice") return 12;
-  if (firstKind === "equal-groups-fair-sharing") return 4;
-  return 6;
+  return activity.items[0] ? worksheetLayoutForItem(activity.items[0]).pageSize : 4;
 }
 
 export function worksheetPrintChunks(items: readonly WorksheetItem[], pageSize = 4): WorksheetItem[][] {
@@ -142,12 +160,19 @@ export function worksheetPrintChunks(items: readonly WorksheetItem[], pageSize =
   return chunks;
 }
 
-function worksheetGridClass(activity: WorksheetActivity): string {
-  if (activity.subject !== "math") return "worksheet-items-standard";
-  const firstKind = activity.items[0]?.kind;
-  if (firstKind === "picture-addition-subtraction" && maximumPictureCount(activity) > 12) return "worksheet-items-math worksheet-items-one-column";
-  if (firstKind === "equal-groups-fair-sharing") return "worksheet-items-math worksheet-items-one-column";
-  return "worksheet-items-math worksheet-items-two-column";
+export function paginateWorksheetItems(activity: WorksheetActivity): WorksheetPrintPage[] {
+  const pages: WorksheetPrintPage[] = [];
+  let offset = 0;
+  while (offset < activity.items.length) {
+    const layout = worksheetLayoutForItem(activity.items[offset]!);
+    let end = offset + 1;
+    while (end < activity.items.length && worksheetLayoutForItem(activity.items[end]!).key === layout.key) end += 1;
+    for (let chunkStart = offset; chunkStart < end; chunkStart += layout.pageSize) {
+      pages.push({ items: activity.items.slice(chunkStart, Math.min(end, chunkStart + layout.pageSize)) as WorksheetItem[], startIndex: chunkStart, layout });
+    }
+    offset = end;
+  }
+  return pages;
 }
 
 function subjectLabel(subject: WorksheetActivity["subject"]): string {
@@ -189,13 +214,11 @@ function PageFooter({ activity, page, total }: { activity: WorksheetActivity; pa
 }
 
 function PrintWorksheet({ activity, options }: { activity: WorksheetActivity; options: Required<WorksheetRenderOptions> }): React.ReactNode {
-  const pageSize = worksheetPageSize(activity);
-  const chunks = worksheetPrintChunks(activity.items, pageSize);
-  const answerPageCount = options.showAnswers && "answerSpecs" in activity && activity.answerSpecs ? 1 : 0;
-  const total = chunks.length + answerPageCount;
+  const pages = paginateWorksheetItems(activity);
+  const answerChunks = options.showAnswers && "answerSpecs" in activity && activity.answerSpecs ? worksheetPrintChunks(activity.items, 20) : [];
+  const total = pages.length + answerChunks.length;
   const mathClass = activity.subject === "math" ? " worksheet-page-math" : "";
-  const gridClass = worksheetGridClass(activity);
-  return <div className="worksheet-pages">{chunks.map((chunk, pageIndex) => <section className={`worksheet-page${mathClass}`} data-page-number={pageIndex + 1} data-page-count={total} key={`page-${pageIndex}`}><WorksheetHeader activity={activity} options={options} compact={pageIndex > 0} />{pageIndex === 0 && <LearningPanels activity={activity} />}<section className="worksheet-section"><div className="section-heading worksheet-problems-heading"><span>{activity.activityType === "assessment" ? "Questions" : "Practice"}</span></div><div className={gridClass}>{chunk.map((item, index) => renderItem(activity, item, pageIndex * pageSize + index, options))}</div></section><PageFooter activity={activity} page={pageIndex + 1} total={total} /></section>)}{answerPageCount === 1 && <section className="worksheet-page worksheet-answer-page" data-page-number={total} data-page-count={total}><WorksheetHeader activity={activity} options={options} compact /><aside className="answer-sheet"><h2>Adult answer sheet</h2><p>Keep this page with the completed work. Answers are not shown in child view.</p><ol>{activity.items.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside><PageFooter activity={activity} page={total} total={total} /></section>}</div>;
+  return <div className="worksheet-pages">{pages.map((page, pageIndex) => <section className={`worksheet-page${mathClass}`} data-page-number={pageIndex + 1} data-page-count={total} data-layout={page.layout.key} key={`page-${pageIndex}`}><WorksheetHeader activity={activity} options={options} compact={pageIndex > 0} />{pageIndex === 0 && <LearningPanels activity={activity} />}<section className="worksheet-section"><div className="section-heading worksheet-problems-heading"><span>{activity.activityType === "assessment" ? "Questions" : "Practice"}</span></div><div className={page.layout.className}>{page.items.map((item, index) => renderItem(activity, item, page.startIndex + index, options))}</div></section><PageFooter activity={activity} page={pageIndex + 1} total={total} /></section>)}{answerChunks.map((chunk, answerIndex) => { const pageNumber = pages.length + answerIndex + 1; return <section className="worksheet-page worksheet-answer-page" data-page-number={pageNumber} data-page-count={total} key={`answers-${answerIndex}`}><WorksheetHeader activity={activity} options={options} compact /><aside className="answer-sheet"><h2>Adult answer sheet</h2>{answerIndex === 0 && <p>Keep these pages with the completed work. Answers are not shown in child view.</p>}<ol start={answerIndex * 20 + 1}>{chunk.map((item) => <li key={item.id}><span>{item.id}</span><strong>{answerFor(activity, item.id)}</strong></li>)}</ol></aside><PageFooter activity={activity} page={pageNumber} total={total} /></section>; })}</div>;
 }
 
 function DigitalWorksheet({ activity, options }: { activity: WorksheetActivity; options: Required<WorksheetRenderOptions> }): React.ReactNode {
