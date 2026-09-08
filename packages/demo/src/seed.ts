@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { closeDatabase, LearningRepository, migrateDatabase, openDatabase } from "@child-learning/database";
 import { deriveConceptAvailability, generateAdditionWithinTen, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation, projectProgression, projectStudentConceptState, progressEventsFromEvaluation, rankRecommendations, DEFAULT_PROGRESSION_POLICY, scoreSubmission } from "@child-learning/domain";
 import { ActivitySpecSchema } from "@child-learning/contracts";
@@ -7,9 +8,11 @@ import { ArtifactStore, type StoredArtifact } from "@child-learning/storage";
 export interface DemoSeedOptions { databasePath?: string; artifactsDir?: string; now?: string; }
 export interface DemoSeedResult { studentId: string; activityIds: string[]; observationScores: number[]; finalStep: number; finalDecision: string; artifacts: StoredArtifact[]; }
 
+const DEMO_DATASET_ID = "child-learning-demo-v2";
+const DEMO_DATASET_VERSION = "2";
 const IDS = {
   student: "student-demo-ava", mathCurriculum: "curriculum-addition-within-10", englishCurriculum: "curriculum-letter-sounds",
-  mathActivities: ["activity-addition-01", "activity-addition-02", "activity-addition-03", "activity-addition-04"],
+  mathActivities: ["activity-addition-01", "activity-addition-02", "activity-addition-03", "activity-addition-04"], nextMathActivity: "activity-addition-next",
   englishActivity: "activity-english-letter-sounds", concept: "math.addition-within-10", englishConcept: "english.beginning-sounds"
 
 } as const;
@@ -41,12 +44,21 @@ function initialState(studentId: string, conceptId: string, now: string): Studen
 
 export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedResult> {
   const now = options.now ?? "2026-01-15T12:00:00.000Z";
-  const db = openDatabase(options.databasePath ? { filename: options.databasePath } : {});
-  const store = new ArtifactStore(options.artifactsDir ? { rootDir: options.artifactsDir, clock: () => now } : { clock: () => now });
+  const databasePath = options.databasePath ?? resolve(process.cwd(), ".data/demo/learning-worktable.db");
+  const artifactsDir = options.artifactsDir ?? resolve(process.cwd(), ".data/demo/artifacts");
+  const db = openDatabase({ filename: databasePath });
+  const store = new ArtifactStore({ rootDir: artifactsDir, clock: () => now });
   try {
     migrateDatabase(db);
     const repo = new LearningRepository(db, () => now);
-    repo.saveStudent({ id: IDS.student, displayName: "Ava Demo", grade: "School-age, mixed level", metadata: { demo: true } });
+    const existingDataset = repo.getSyntheticDataset(DEMO_DATASET_ID);
+    if (existingDataset) {
+      const manifest = JSON.parse(String(existingDataset.manifest_json)) as Omit<DemoSeedResult, "artifacts"> & { artifactIds: string[] };
+      const artifacts = (await Promise.all(manifest.artifactIds.map((id) => store.findById(id)))).filter((artifact): artifact is StoredArtifact => Boolean(artifact));
+      return { studentId: manifest.studentId, activityIds: manifest.activityIds, observationScores: manifest.observationScores, finalStep: manifest.finalStep, finalDecision: manifest.finalDecision, artifacts };
+    }
+    if (repo.getStudent(IDS.student)) throw new Error("The isolated demo store contains an unmanifested demo learner; refusing to overwrite it.");
+    repo.saveStudent({ id: IDS.student, displayName: "Ava Demo", grade: "School-age, mixed level", dataScope: "demo", sourceDatasetId: DEMO_DATASET_ID, metadata: { demo: true, baselineStatus: "established", selectedSubjects: ["math", "english", "reasoning", "science"] } });
     repo.saveCurriculumMetadata({ id: IDS.mathCurriculum, subject: "math", conceptId: IDS.concept, title: "Addition within 10", metadata: { demo: true } });
     repo.saveCurriculumMetadata({ id: IDS.englishCurriculum, subject: "english", conceptId: IDS.englishConcept, title: "Beginning letter sounds", metadata: { demo: true } });
     const artifacts: StoredArtifact[] = [];
@@ -72,6 +84,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       if (index === 0) comparableKey = persisted.comparabilityKey;
       additionActivities.push(persisted);
     }
+    const nextMathActivity = await persistActivity({ ...generateAdditionWithinTen({ seed: 105, studentId: IDS.student, now, itemCount: 20 }), id: IDS.nextMathActivity }, IDS.mathCurriculum);
     const englishSpec = generateEnglishBeginningSounds({ seed: 201, studentId: IDS.student, now, itemCount: 5 });
     const englishActivity = await persistActivity({ ...englishSpec, id: IDS.englishActivity }, IDS.englishCurriculum);
     const englishActivityRow = db.prepare("SELECT artifact_id FROM activities WHERE id = ?").get(IDS.englishActivity) as { artifact_id: string };
@@ -137,7 +150,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
     repo.appendProgressEvent({ event: englishEvent, previousState: stateSnapshot(initialState(IDS.student, IDS.englishConcept, now)), newState: stateSnapshot(englishState), policyVersion: DEFAULT_PROGRESSION_POLICY.schemaVersion, reason: "English beginning-sound observation scored through the domain scorer.", operationKey: "demo:english:progress" });
     repo.saveConceptState({ studentId: englishState.studentId, conceptId: englishState.conceptId, step: englishState.step, status: englishState.status, recentScores: englishState.recentScores, confidence: englishEvent.confidence, observationCount: 1, correctCount: 1, lastEventAt: englishState.lastEvidenceAt, mastery: englishEvaluation.score, state: { policy: DEFAULT_PROGRESSION_POLICY } });
 
-    const recommendation: Recommendation = rankRecommendations([...additionActivities, englishActivity], { studentId: IDS.student, now, states: [repo.getConceptState(IDS.student, IDS.concept), repo.getConceptState(IDS.student, IDS.englishConcept)].filter(Boolean).map((row) => ({ studentId: String(row!.student_id), conceptId: String(row!.concept_id), step: Number(row!.step), status: row!.status as StudentConceptState["status"], recentScores: JSON.parse(String(row!.recent_scores_json)), updatedAt: String(row!.updated_at) })), events: mathEvents, recommendationId: "recommendation-demo-1" });
+    const recommendation: Recommendation = rankRecommendations([...additionActivities, nextMathActivity, englishActivity], { studentId: IDS.student, now, states: [repo.getConceptState(IDS.student, IDS.concept), repo.getConceptState(IDS.student, IDS.englishConcept)].filter(Boolean).map((row) => ({ studentId: String(row!.student_id), conceptId: String(row!.concept_id), step: Number(row!.step), status: row!.status as StudentConceptState["status"], recentScores: JSON.parse(String(row!.recent_scores_json)), updatedAt: String(row!.updated_at) })), events: mathEvents, recommendationId: "recommendation-demo-1" });
     repo.saveRecommendation({ recommendation, operationKey: "demo:recommendation:1" });
 
     const originalDecision = recommendation.candidates[0]?.reasons[0]?.code ?? "variety";
@@ -151,7 +164,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       { submissionId: englishSubmission.id, activityId: englishActivity.id, title: englishActivity.title, subject: englishActivity.subject, conceptId: englishActivity.conceptId, submittedAt: now, evaluationId: englishEvaluation.id, score: englishEvaluation.score, status: englishEvaluation.status, correctItems: englishEvaluation.items.filter((item) => item.score === 1).length, totalItems: englishActivity.items.length },
     ];
     if (!db.prepare("SELECT 1 FROM report_snapshots WHERE id = ?").get("report-demo-1")) {
-      const report: ReportSnapshot = { id: "report-demo-1", studentId: IDS.student, asOf: now, conceptStates: [mathState, englishState], evidence: [{ conceptId: IDS.concept, recentScores: scores, trend: "up", evidenceCount: 4 }, { conceptId: IDS.englishConcept, recentScores: englishState.recentScores, trend: "insufficient-data", evidenceCount: 1 }], strengths: learningPath.filter((concept) => concept.status === "secure").map((concept) => concept.conceptId), needsPractice: [], recommendedNextSteps: [recommendation.conciseReason], worksheetSummaries, learningPath, roadmapRevisionIds: [], recommendation, summary: `Addition observations: ${scores.map((score) => score.toFixed(2)).join(", ")}. The final comparable streak advances one step. ${recommendation.conciseReason}` };
+      const report: ReportSnapshot = { id: "report-demo-1", studentId: IDS.student, asOf: now, kind: "current", conceptStates: [mathState, englishState], evidence: [{ conceptId: IDS.concept, recentScores: scores, trend: "up", evidenceCount: 4 }, { conceptId: IDS.englishConcept, recentScores: englishState.recentScores, trend: "insufficient-data", evidenceCount: 1 }], strengths: learningPath.filter((concept) => concept.status === "secure").map((concept) => concept.conceptId), needsPractice: [], recommendedNextSteps: [recommendation.conciseReason], worksheetSummaries, learningPath, roadmapRevisionIds: [], recommendation, summary: `Addition observations: ${scores.map((score) => score.toFixed(2)).join(", ")}. The final comparable streak advances one step. ${recommendation.conciseReason}` };
       const reportArtifact = await saveArtifact(report, { source: "demo-report", kind: "report-snapshot" });
       for (const evaluationArtifact of [...mathEvaluationArtifacts, englishEvaluationArtifact]) {
         await store.addLineageEdge(evaluationArtifact.id, reportArtifact.id, "supports");
@@ -159,7 +172,9 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       }
       repo.saveReportSnapshot({ report: { ...report, artifactId: reportArtifact.id }, artifactId: reportArtifact.id, operationKey: "demo:report:1" });
     }
-    return { studentId: IDS.student, activityIds: [...IDS.mathActivities, IDS.englishActivity, ...broaderActivities.map(({ id }) => id)], observationScores: scores, finalStep: mathState.step, finalDecision, artifacts };
+    const result = { studentId: IDS.student, activityIds: [...IDS.mathActivities, IDS.nextMathActivity, IDS.englishActivity, ...broaderActivities.map(({ id }) => id)], observationScores: scores, finalStep: mathState.step, finalDecision };
+    repo.recordSyntheticDataset({ id: DEMO_DATASET_ID, version: DEMO_DATASET_VERSION, studentId: IDS.student, seededAt: now, manifest: { ...result, artifactIds: artifacts.map((artifact) => artifact.id), databasePath, artifactsDir } });
+    return { ...result, artifacts };
   } finally { closeDatabase(db); }
 }
 

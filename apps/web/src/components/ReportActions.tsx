@@ -11,7 +11,7 @@ export function ReportActions({ studentId, reportId }: { studentId: string; repo
   const [busy, setBusy] = useState(false);
   async function generate() {
     setBusy(true);
-    const response = await fetch("/api/reports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId }) });
+    const response = await fetch("/api/reports", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId, kind: "current", selectedDate: new Date().toISOString().slice(0, 10), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }) });
     const result = await response.json();
     setMessage(response.ok ? "A new immutable report snapshot was created." : String(result.error ?? "Could not create report."));
     setBusy(false);

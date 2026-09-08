@@ -23,8 +23,9 @@
     "plugin:clean:claude": "node -e \"require('node:fs').rmSync('dist/plugin/claude', { recursive: true, force: true })\"",
     "plugin:validate": "pnpm plugin:bundle && go run github.com/asingamaneni/omniplug/cmd/omniplug@1da68b18cfbf74d7cdbc0ebae9416f06a8654676 validate -s plugin -t claude",
     "plugin:verify-output": "tsx scripts/verify-claude-plugin-output.ts",
+    "brand:verify": "tsx scripts/verify-branding.ts",
     "plugin:build": "pnpm plugin:bundle && pnpm plugin:clean:claude && go run github.com/asingamaneni/omniplug/cmd/omniplug@1da68b18cfbf74d7cdbc0ebae9416f06a8654676 build -s plugin -o dist/plugin -t claude && pnpm plugin:verify-output",
-    "verify:fast": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm plugin:build",
+    "verify:fast": "pnpm brand:verify && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm plugin:build",
     "verify": "pnpm verify:fast && pnpm test:e2e"
   },
   "devDependencies": {

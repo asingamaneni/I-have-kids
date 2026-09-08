@@ -3,7 +3,7 @@ import { ActivitySpecSchema, toChildActivitySpec } from "../../../packages/contr
 import { generateAdditionWithinTen, generateAdditionWithinTwenty, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation } from "../../../packages/domain/src/index.ts";
 import { createElement } from "../../../packages/rendering/node_modules/react/index.js";
 import { renderToStaticMarkup } from "../../../apps/web/node_modules/react-dom/server.js";
-import { WorksheetRenderer, worksheetOptions, worksheetPageSize, worksheetPrintChunks, worksheetTemplateFor } from "../../../packages/rendering/src/index.ts";
+import { paginateWorksheetItems, WorksheetRenderer, worksheetLayoutForItem, worksheetOptions, worksheetPageSize, worksheetPrintChunks, worksheetTemplateFor } from "../../../packages/rendering/src/index.ts";
 
 describe("worksheet rendering contracts", () => {
   it("selects the visual-operation template for persisted picture addition", () => {
@@ -48,25 +48,30 @@ describe("worksheet rendering contracts", () => {
     expect(html).not.toContain("answer-reveal");
   });
 
-  it("uses a compact one-page layout for picture addition within twenty", () => {
-    const activity = generateAdditionWithinTwenty({ seed: 12, studentId: "student-test", itemCount: 5 });
-    expect(worksheetPageSize(activity)).toBe(5);
-    const html = renderToStaticMarkup(createElement(WorksheetRenderer, { activity, options: { mode: "print" } }));
-    expect(html).toContain("worksheet-items-one-column");
-    expect(html).toContain("Add. Write the sum.");
-    expect((html.match(/class="worksheet-page(?:"| )/g) ?? [])).toHaveLength(1);
+  it("uses item-aware columns for compact and visual work", () => {
+    const visual = generateAdditionWithinTwenty({ seed: 12, studentId: "student-test", itemCount: 5 });
+    expect([5, 9]).toContain(worksheetPageSize(visual));
+    const visualHtml = renderToStaticMarkup(createElement(WorksheetRenderer, { activity: visual, options: { mode: "print" } }));
+    expect(visualHtml).toMatch(/worksheet-items-(one|three)-column/);
+    expect(visualHtml).toContain("Add. Write the sum.");
+    const equations = generateAdditionWithinTwenty({ seed: 12, studentId: "student-test", representationStage: "abstract" });
+    expect(worksheetLayoutForItem(equations.items[0]!).columns).toBe(5);
+    expect(paginateWorksheetItems(equations)).toHaveLength(1);
+    const equationHtml = renderToStaticMarkup(createElement(WorksheetRenderer, { activity: equations, options: { mode: "print" } }));
+    expect(equationHtml).toContain("worksheet-items-five-column");
   });
 
-  it("creates stable Letter page sections and an isolated adult answer page", () => {
-    const activity = generateAdditionWithinTen({ seed: 101, studentId: "student-test", itemCount: 10 });
-    expect(worksheetPageSize(activity)).toBe(10);
-    expect(worksheetPrintChunks(activity.items, worksheetPageSize(activity)).map((page) => page.length)).toEqual([10]);
+  it("creates stable Letter pages and paginates adult answers", () => {
+    const activity = generateAdditionWithinTen({ seed: 101, studentId: "student-test" });
+    expect(activity.items).toHaveLength(20);
+    expect(worksheetPrintChunks(activity.items, 20).map((page) => page.length)).toEqual([20]);
+    const problemPages = paginateWorksheetItems(activity);
     const html = renderToStaticMarkup(createElement(WorksheetRenderer, { activity, options: { mode: "print", showAnswers: true } }));
-    expect((html.match(/class="worksheet-page(?:"| )/g) ?? []).length).toBe(2);
-    expect(html).toContain("Page 1 of 2");
-    expect(html).toContain("Page 2 of 2");
-    expect(html.indexOf("worksheet-answer-page")).toBeGreaterThan(html.indexOf("Page 1 of 2"));
-    expect(html).toContain("worksheet-items-two-column");
+    expect((html.match(/class="worksheet-page(?:"| )/g) ?? []).length).toBe(problemPages.length + 1);
+    expect(html).toContain(`Page 1 of ${problemPages.length + 1}`);
+    expect(html).toContain(`Page ${problemPages.length + 1} of ${problemPages.length + 1}`);
+    expect(html.indexOf("worksheet-answer-page")).toBeGreaterThan(html.indexOf(`Page 1 of ${problemPages.length + 1}`));
+    expect(html).toContain("worksheet-items-three-column");
     expect(html).not.toContain("Today’s plan");
     expect(html).not.toContain("Guided start");
   });

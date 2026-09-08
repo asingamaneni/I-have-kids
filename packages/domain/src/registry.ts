@@ -50,6 +50,7 @@ export class CurriculumRegistry {
   readonly conceptRevisionIds = new Map<string, string>();
   readonly subjects = new Map<string, { id: string; title: string; description: string; icon?: string }>();
   readonly templates = new Map<string, CurriculumActivityTemplate>();
+  readonly assessmentTargets = new Map<string, { conceptId: string; stage: string; questionnairePrompt?: string }>();
 
   constructor(revisionInputs: readonly CurriculumPackRevision[], options: CurriculumRegistryOptions = {}) {
     this.revisions = revisionInputs.map((revision) => CurriculumPackRevisionSchema.parse(revision));
@@ -83,6 +84,12 @@ export class CurriculumRegistry {
         if (options.renderers && !options.renderers.has(stage.renderer)) throw new Error(`${concept.id} references unknown renderer ${stage.renderer}`);
         const allowedKinds = stage.activityKinds.length > 0 ? stage.activityKinds : concept.activityKinds;
         if (allowedKinds.some((kind) => !concept.activityKinds.includes(kind))) throw new Error(`${concept.id} stage ${stage.stage} uses an unsupported activity kind`);
+      }
+      for (const target of concept.assessmentTargets) {
+        if (!stages.has(target.stage)) throw new Error(`${concept.id} assessment target ${target.claim} references missing stage ${target.stage}`);
+        const owner = this.assessmentTargets.get(target.claim);
+        if (owner && owner.conceptId !== concept.id) throw new Error(`assessment claim ${target.claim} is assigned to both ${owner.conceptId} and ${concept.id}`);
+        this.assessmentTargets.set(target.claim, { conceptId: concept.id, stage: target.stage, ...(target.questionnairePrompt ? { questionnairePrompt: target.questionnairePrompt } : {}) });
       }
       this.concepts.set(concept.id, concept);
       this.conceptRevisionIds.set(concept.id, revision.id);

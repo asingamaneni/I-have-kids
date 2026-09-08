@@ -35,7 +35,12 @@
       ],
       "assessmentClaims": [
         "english.hears-beginning-sounds"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "english.hears-beginning-sounds", "stage": "pictorial", "questionnairePrompt": "Can they identify the first sound in familiar spoken words?" }
+      ],
+      "strand": "phonological-awareness",
+      "phase": "foundations"
     },
     {
       "id": "english.letter-formation",
@@ -71,7 +76,12 @@
       ],
       "assessmentClaims": [
         "english.writes-letters-words"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "english.writes-letters-words", "stage": "pictorial", "questionnairePrompt": "Can they write familiar letters or short words with readable formation?" }
+      ],
+      "strand": "writing-foundations",
+      "phase": "foundations"
     },
     {
       "id": "english.reading-for-detail",
@@ -117,7 +127,12 @@
       ],
       "assessmentClaims": [
         "english.reads-short-text"
-      ]
+      ],
+      "assessmentTargets": [
+        { "claim": "english.reads-short-text", "stage": "abstract", "questionnairePrompt": "Can they read a short passage and answer a question using details from it?" }
+      ],
+      "strand": "reading-comprehension",
+      "phase": "foundations"
     }
   ]
 }

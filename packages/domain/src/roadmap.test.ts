@@ -3,6 +3,8 @@ import { ActivitySpecSchema, CurriculumPackRevisionSchema, type ProgressEvent, t
 import { DEFAULT_CURRICULUM } from "./curriculum.js";
 import { CurriculumRegistry, curriculumDefinitionsToPackRevision } from "./registry.js";
 import { projectLearnerRoadmaps } from "./roadmap.js";
+import { ACTIVITY_GENERATORS } from "./generators.js";
+import { GROWING_PATHS_REVISION, REFERENCE_PROGRESSIONS_REVISION } from "./sample-packs.js";
 
 const at = "2026-03-01T00:00:00.000Z";
 
@@ -46,6 +48,12 @@ describe("adaptive learner roadmaps", () => {
     expect(roadmap.nodes.find((node) => node.conceptId === "coding.loops")?.status).toBe("locked");
   });
 
+  it("uses an explicit assessment directive as the initial roadmap focus", () => {
+    const registry = new CurriculumRegistry([curriculumDefinitionsToPackRevision(DEFAULT_CURRICULUM), GROWING_PATHS_REVISION]);
+    const roadmaps = projectLearnerRoadmaps({ studentId: "s", registry, states: [], directives: [{ id: "assess-place-value", studentId: "s", conceptId: "math.place-value", action: "assess", reason: "Parent reports place-value work.", authorId: "adult", requestedStage: "pictorial", priority: 5, createdAt: at }], now: at });
+    expect(roadmaps.find((roadmap) => roadmap.subject === "math")?.currentNodeIds).toEqual(["math.place-value"]);
+  });
+
   it("keeps every per-subject roadmap edge connected to visible nodes", () => {
     const revision = CurriculumPackRevisionSchema.parse({ schemaVersion: "2.0", id: "cross-subject-r1", packId: "cross-subject", revision: 1, title: "Cross-subject path", description: "Coordinates two subjects.", subjects: [{ id: "math", title: "Math", description: "Numbers." }, { id: "history", title: "History", description: "Events." }], concepts: [{ id: "math.timeline-scale", subject: "math", title: "Timeline scale", description: "Read equal intervals.", step: 0, activityKinds: ["numeric-response"] }, { id: "history.timelines", subject: "history", title: "Timelines", description: "Order events.", step: 0, readinessConceptIds: ["math.timeline-scale"], activityKinds: ["ordering"] }], edges: [{ id: "scale-supports-timeline", from: "math.timeline-scale", to: "history.timelines", type: "cross-subject" }], provenance: { origin: "original" }, createdBy: "adult", createdAt: at });
     const roadmaps = projectLearnerRoadmaps({ studentId: "s", registry: new CurriculumRegistry([revision]), states: [], now: at });
@@ -53,6 +61,24 @@ describe("adaptive learner roadmaps", () => {
       const nodeIds = new Set(roadmap.nodes.map((node) => node.id));
       expect(roadmap.edges.every((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))).toBe(true);
     }
+  });
+
+  it("loads continuous Math and Language Arts progressions with diagnostic anchors", () => {
+    const registry = new CurriculumRegistry([curriculumDefinitionsToPackRevision(DEFAULT_CURRICULUM), GROWING_PATHS_REVISION, REFERENCE_PROGRESSIONS_REVISION], { generators: new Set(["template-bank", ...Object.keys(ACTIVITY_GENERATORS)]), evaluators: new Set(["deterministic", "review-gated"]), renderers: new Set(["worksheet"]) });
+    expect(registry.concepts.has("math.differentiation")).toBe(true);
+    expect(registry.concepts.has("math.statistics")).toBe(true);
+    expect(registry.concepts.has("english.critical-reading")).toBe(true);
+    expect(registry.concepts.has("english.evidence-based-writing")).toBe(true);
+    expect(registry.assessmentTargets.get("math.solves-linear-equations")).toEqual(expect.objectContaining({ conceptId: "math.linear-equations", stage: "independent" }));
+    expect(registry.assessmentTargets.get("english.evaluates-texts")).toEqual(expect.objectContaining({ conceptId: "english.critical-reading", stage: "independent" }));
+    expect(registry.concepts.get("math.integration")?.phase).toBe("advanced");
+    expect(registry.concepts.get("english.summarizing")?.strand).toBe("synthesis");
+    expect(registry.templates.has("math.integration.diagnostic")).toBe(true);
+  });
+
+  it("rejects ambiguous assessment anchors", () => {
+    const revision = CurriculumPackRevisionSchema.parse({ schemaVersion: "2.0", id: "duplicate-anchor-r1", packId: "duplicate-anchor", revision: 1, title: "Duplicate anchors", description: "Invalid duplicate assessment claims.", subjects: [{ id: "music", title: "Music", description: "Rhythm and melody." }], concepts: [{ id: "music.rhythm", subject: "music", title: "Rhythm", description: "Keep a beat.", step: 0, activityKinds: ["selected-response"], assessmentTargets: [{ claim: "music.keeps-beat", stage: "guided" }], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }, { id: "music.meter", subject: "music", title: "Meter", description: "Group beats.", step: 1, activityKinds: ["selected-response"], assessmentTargets: [{ claim: "music.keeps-beat", stage: "guided" }], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }], provenance: { origin: "original" }, createdBy: "adult", createdAt: at });
+    expect(() => new CurriculumRegistry([revision])).toThrow(/assigned to both/);
   });
 
   it("accepts a runtime-added subject with configurable stage names", () => {

@@ -1,29 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { ActivitySpecSchema, ChildActivitySpecSchema, SubmissionSchema, StudentSchema, toChildActivitySpec, type ActivitySpec, type CapabilityClaim, type ChildActivitySpec, type ConceptAvailability, type CurriculumRevisionProposal, type Student, type StudentCreateRequest, type Submission } from "@child-learning/contracts";
-import { comparabilityKey, filterAvailableActivities } from "@child-learning/domain";
-import { createLocalService, type LocalService } from "@child-learning/mcp-server";
+import { filterAvailableActivities } from "@child-learning/domain";
+import { createDemoService, createLocalService, type LocalService } from "@child-learning/mcp-server";
 import { normalizeImage } from "@child-learning/storage";
 
 type ServiceWork<T> = (service: LocalService) => Promise<T> | T;
+export type DataScope = "household" | "demo";
 
-type BaselineTarget = { subject: ActivitySpec["subject"]; conceptId: string; stage: string; rank: number };
-const BASELINE_TARGETS: Readonly<Record<string, BaselineTarget>> = {
-  "math.counts-to-10": { subject: "math", conceptId: "math.counting-to-10", stage: "pictorial", rank: 1 },
-  "math.recognizes-teen-numbers": { subject: "math", conceptId: "math.teen-numbers", stage: "pictorial", rank: 2 },
-  "math.adds-with-objects": { subject: "math", conceptId: "math.addition-within-10", stage: "pictorial", rank: 3 },
-  "math.adds-with-symbols": { subject: "math", conceptId: "math.addition-within-10", stage: "abstract", rank: 4 },
-  "math.subtracts-with-objects": { subject: "math", conceptId: "math.subtraction-within-10", stage: "pictorial", rank: 5 },
-  "math.subtracts-with-symbols": { subject: "math", conceptId: "math.subtraction-within-10", stage: "abstract", rank: 6 },
-  "english.hears-beginning-sounds": { subject: "english", conceptId: "english.beginning-sounds", stage: "pictorial", rank: 1 },
-  "english.writes-letters-words": { subject: "english", conceptId: "english.letter-formation", stage: "pictorial", rank: 2 },
-  "english.reads-short-text": { subject: "english", conceptId: "english.reading-for-detail", stage: "pictorial", rank: 3 },
-  "reasoning.continues-patterns": { subject: "reasoning", conceptId: "reasoning.sequence-and-pattern", stage: "pictorial", rank: 1 },
-  "reasoning.sorts-and-explains": { subject: "reasoning", conceptId: "reasoning.classify-and-explain", stage: "pictorial", rank: 2 },
-  "science.observes-and-describes": { subject: "science", conceptId: "science.observe-and-describe", stage: "pictorial", rank: 1 },
-};
-
-async function withService<T>(work: ServiceWork<T>): Promise<T> {
-  const service = createLocalService();
+async function withService<T>(work: ServiceWork<T>, scope: DataScope = "household"): Promise<T> {
+  const service = scope === "demo" ? createDemoService() : createLocalService();
   try { return await work(service); } finally { service.close(); }
 }
 
@@ -31,7 +16,7 @@ function toStudent(row: Record<string, unknown> | undefined): Student | undefine
   if (!row) return undefined;
   let metadata: { preferredLanguage?: string; accommodations?: string[]; interests?: string[]; learningGoals?: string[]; selectedSubjects?: string[]; reportedCapabilities?: CapabilityClaim[]; baselineNotes?: string; baselineStatus?: Student["baselineStatus"] } = {};
   try { metadata = JSON.parse(String(row.metadata_json ?? "{}")) as typeof metadata; } catch { metadata = {}; }
-  return StudentSchema.parse({ id: row.id, displayName: row.display_name, birthDate: row.birth_date ?? undefined, gradeBand: row.grade ?? "school-age", preferredLanguage: metadata.preferredLanguage ?? "en", accommodations: metadata.accommodations ?? [], interests: metadata.interests ?? [], learningGoals: metadata.learningGoals ?? [], selectedSubjects: metadata.selectedSubjects ?? [], reportedCapabilities: metadata.reportedCapabilities ?? [], ...(metadata.baselineNotes ? { baselineNotes: metadata.baselineNotes } : {}), baselineStatus: metadata.baselineStatus ?? "unassessed", createdAt: row.created_at, updatedAt: row.updated_at });
+  return StudentSchema.parse({ id: row.id, displayName: row.display_name, birthDate: row.birth_date ?? undefined, gradeBand: row.grade ?? "school-age", preferredLanguage: metadata.preferredLanguage ?? "en", accommodations: metadata.accommodations ?? [], interests: metadata.interests ?? [], learningGoals: metadata.learningGoals ?? [], selectedSubjects: metadata.selectedSubjects ?? [], reportedCapabilities: metadata.reportedCapabilities ?? [], ...(metadata.baselineNotes ? { baselineNotes: metadata.baselineNotes } : {}), baselineStatus: metadata.baselineStatus ?? "awaiting-intake", dataScope: row.data_scope ?? "household", ...(row.source_dataset_id ? { sourceDatasetId: row.source_dataset_id } : {}), createdAt: row.created_at, updatedAt: row.updated_at });
 }
 
 function parseActivityRow(row: Record<string, unknown> | undefined): ActivitySpec | undefined {
@@ -39,67 +24,35 @@ function parseActivityRow(row: Record<string, unknown> | undefined): ActivitySpe
   return ActivitySpecSchema.parse(JSON.parse(String(row.specification_json)));
 }
 
-export async function ensureDemoData(): Promise<void> { await withService((service) => service.initializeDemo("2026-01-15T12:00:00.000Z").then(() => undefined)); }
+export async function ensureDemoData(): Promise<void> { await withService((service) => service.initializeDemo("2026-01-15T12:00:00.000Z").then(() => undefined), "demo"); }
 
-export async function getStudent(studentId: string): Promise<Student | undefined> {
-  return withService((service) => toStudent(service.repo.getStudent(studentId)));
+export async function getStudent(studentId: string, scope: DataScope = "household"): Promise<Student | undefined> {
+  return withService((service) => toStudent(service.repo.getStudent(studentId)), scope);
 }
 
 export async function createStudentWithStarter(input: StudentCreateRequest) {
-  return withService(async (service) => {
-    const claims = input.currentCapabilities ?? [];
-    const student = service.createStudent({ displayName: input.displayName, ...(input.id === undefined ? {} : { id: input.id }), ...(input.birthDate === undefined ? {} : { birthDate: input.birthDate }), ...(input.schoolPlacement === undefined ? {} : { schoolPlacement: input.schoolPlacement }), ...(input.preferredLanguage === undefined ? {} : { preferredLanguage: input.preferredLanguage }), ...(input.accommodations === undefined ? {} : { accommodations: input.accommodations }), ...(input.interests === undefined ? {} : { interests: input.interests }), ...(input.learningGoals === undefined ? {} : { learningGoals: input.learningGoals }), ...(input.selectedSubjects === undefined ? {} : { selectedSubjects: input.selectedSubjects }), reportedCapabilities: claims, ...(input.baselineNotes === undefined ? {} : { baselineNotes: input.baselineNotes }), baselineStatus: claims.length > 0 ? "diagnostic-in-progress" : "unassessed" });
-    if (claims.length === 0) {
-      const subjects = student.selectedSubjects.length > 0 ? student.selectedSubjects : ["math"];
-      const starters: Record<string, unknown>[] = [];
-      for (const [index, subject] of subjects.entries()) {
-        const concept = [...service.registry.concepts.values()].filter((entry) => entry.subject === subject && entry.prerequisites.length === 0 && entry.readinessConceptIds.length === 0).sort((a, b) => a.step - b.step)[0];
-        if (!concept) continue;
-        const activity = service.generateActivity({ studentId: student.id, subject, conceptId: concept.id, seed: Date.now() + index, itemCount: 3, representationStage: concept.stages[0]!.stage });
-        starters.push(await service.validateAndStoreActivity(activity));
-      }
-      await service.reconcileLearningRoadmaps(student.id, "learner-created", student.id);
-      return { student, starters, baselineMode: "begin-at-subject-roots" as const };
-    }
-    const targetBySubject = new Map<ActivitySpec["subject"], BaselineTarget>();
-    for (const claim of claims) {
-      const configured = [...service.registry.concepts.values()].find((concept) => concept.assessmentClaims.includes(claim));
-      const target = BASELINE_TARGETS[claim] ?? (configured ? { subject: configured.subject, conceptId: configured.id, stage: configured.stages[Math.min(1, configured.stages.length - 1)]!.stage, rank: configured.step } : undefined);
-      if (!target) continue;
-      const current = targetBySubject.get(target.subject);
-      if (!current || target.rank > current.rank) targetBySubject.set(target.subject, target);
-    }
-    const starters: Record<string, unknown>[] = [];
-    for (const target of targetBySubject.values()) {
-      await service.applyLearningDirective({ id: `baseline-${student.id}-${target.conceptId}`, studentId: student.id, conceptId: target.conceptId, action: "assess", reason: "Adult-reported current capability; verify with a short starting assessment before changing progress.", authorId: "local-adult", requestedStage: target.stage });
-      const generated = service.generateActivity({ studentId: student.id, conceptId: target.conceptId, seed: Date.now(), itemCount: 3, representationStage: target.stage });
-      const draft = ActivitySpecSchema.parse({ ...generated, title: `Starting check: ${generated.title}`, activityType: "assessment", rationale: "This diagnostic begins near an adult-reported capability. Only the child's confirmed responses establish the learning path.", comparabilityKey: "pending" });
-      starters.push(await service.validateAndStoreActivity({ ...draft, comparabilityKey: comparabilityKey(draft) }));
-    }
-    await service.reconcileLearningRoadmaps(student.id, "starting-assessment", student.id);
-    return { student, starters, baselineMode: "adult-report-plus-confirmed-diagnostic" as const };
-  });
+  return withService((service) => service.createLearnerWithIntake(input));
 }
 
 export async function getStudentProgressRows(studentId: string) {
   return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), states: service.db.prepare("SELECT * FROM student_concept_state WHERE student_id = ? ORDER BY concept_id").all(studentId) as Record<string, unknown>[] }));
 }
 
-export async function getStudentTimeline(studentId: string) {
-  return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), timeline: service.repo.timeline(studentId) }));
+export async function getStudentTimeline(studentId: string, scope: DataScope = "household") {
+  return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), timeline: service.repo.timeline(studentId) }), scope);
 }
 
-export async function getAvailableChildActivities(studentId: string) {
+export async function getAvailableChildActivities(studentId: string, scope: DataScope = "household") {
   return withService((service) => {
     const student = toStudent(service.repo.getStudent(studentId));
     if (!student) return { student, activities: [] as ChildActivitySpec[], learningPathVersion: "capability-path-v1" };
     const activities = service.repo.listActivities(studentId).map(parseActivityRow).filter((value): value is ActivitySpec => Boolean(value));
     const learningPath = service.getLearningPath(studentId) as { availability: ConceptAvailability[]; curriculumVersion: string };
     return { student, activities: filterAvailableActivities(activities.filter((activity) => service.registry.activityMatchesActiveRevision(activity)), learningPath.availability).map(toChildActivitySpec), learningPathVersion: learningPath.curriculumVersion };
-  });
+  }, scope);
 }
 
-export async function getStudentBundle(studentId: string) {
+export async function getStudentBundle(studentId: string, scope: DataScope = "household") {
   return withService((service) => {
     const student = toStudent(service.repo.getStudent(studentId));
     const activities = service.repo.listActivities(studentId).map(parseActivityRow).filter((value): value is ActivitySpec => Boolean(value));
@@ -113,12 +66,13 @@ export async function getStudentBundle(studentId: string) {
     const timeline = service.repo.timeline(studentId);
     const reports = service.db.prepare("SELECT * FROM report_snapshots WHERE student_id = ? ORDER BY created_at DESC").all(studentId) as Record<string, unknown>[];
     const recommendations = service.db.prepare("SELECT * FROM recommendations WHERE student_id = ? ORDER BY created_at DESC").all(studentId) as Record<string, unknown>[];
-    return { student, activities, availableActivities, learningPath, roadmaps, states, submissions, evaluations, pendingEvaluations, timeline, reports, recommendations };
-  });
+    const learnerWork = student ? service.projectLearnerWork(studentId) : { current: [], history: [], recommendation: undefined };
+    return { student, activities, availableActivities, learnerWork, learningPath, roadmaps, states, submissions, evaluations, pendingEvaluations, timeline, reports, recommendations };
+  }, scope);
 }
 
-export async function getLearnerRoadmaps(studentId: string, adult = false) {
-  return withService((service) => service.getLearningRoadmaps(studentId, adult));
+export async function getLearnerRoadmaps(studentId: string, adult = false, scope: DataScope = "household") {
+  return withService((service) => service.getLearningRoadmaps(studentId, adult), scope);
 }
 
 export async function getCurriculumOverview() {
@@ -174,13 +128,13 @@ export async function getWorksheetReview(studentId: string, submissionId: string
   `).get(studentId, submissionId) as Record<string, unknown> | undefined);
 }
 
-export async function getAdultActivity(activityId: string): Promise<ActivitySpec | undefined> {
+export async function getAdultActivity(activityId: string, scope: DataScope = "household"): Promise<ActivitySpec | undefined> {
   return withService((service) => {
     try { return ActivitySpecSchema.parse(service.getActivity(activityId, true)); } catch { return undefined; }
-  });
+  }, scope);
 }
 
-export async function getChildActivity(activityId: string): Promise<ChildActivitySpec | undefined> {
+export async function getChildActivity(activityId: string, scope: DataScope = "household"): Promise<ChildActivitySpec | undefined> {
   return withService((service) => {
     try {
       const adultActivity = ActivitySpecSchema.parse(service.getActivity(activityId, true));
@@ -188,7 +142,21 @@ export async function getChildActivity(activityId: string): Promise<ChildActivit
       if (!service.registry.activityMatchesActiveRevision(adultActivity) || filterAvailableActivities([adultActivity], learningPath.availability).length === 0) return undefined;
       return ChildActivitySpecSchema.parse(service.getActivity(activityId, false));
     } catch { return undefined; }
-  });
+  }, scope);
+}
+
+export async function getHistoricalChildActivity(activityId: string, studentId: string, scope: DataScope = "household"): Promise<ChildActivitySpec | undefined> {
+  return withService((service) => {
+    try {
+      const activity = ActivitySpecSchema.parse(service.getActivity(activityId, true));
+      if (activity.studentId !== studentId) return undefined;
+      return toChildActivitySpec(activity);
+    } catch { return undefined; }
+  }, scope);
+}
+
+export async function isValidRetrySource(studentId: string, activityId: string, submissionId: string, scope: DataScope = "household"): Promise<boolean> {
+  return withService((service) => Boolean(service.db.prepare("SELECT 1 FROM submissions WHERE id = ? AND student_id = ? AND activity_id = ?").get(submissionId, studentId, activityId)), scope);
 }
 
 export async function saveGeneratedActivity(specInput: unknown) {
@@ -202,12 +170,12 @@ export async function generateAndStoreActivity(input: { subject?: string; concep
   });
 }
 
-export async function saveDigitalSubmission(input: Submission): Promise<Record<string, unknown>> {
+export async function saveDigitalSubmission(input: Submission, scope: DataScope = "household"): Promise<Record<string, unknown>> {
   const parsed = SubmissionSchema.parse(input);
-  return withService((service) => service.recordDigitalSubmission(parsed));
+  return withService((service) => service.recordDigitalSubmission(parsed), scope);
 }
 
-export async function savePhotoSubmission(studentId: string, activityId: string, file: File) {
+export async function savePhotoSubmission(studentId: string, activityId: string, file: File, scope: DataScope = "household", retryOfSubmissionId?: string) {
   if (!studentId || !activityId) throw new Error("studentId and activityId are required.");
   if (file.size > 8 * 1024 * 1024) throw new Error("Image must be 8 MB or smaller.");
   const originalBytes = new Uint8Array(await file.arrayBuffer());
@@ -220,7 +188,9 @@ export async function savePhotoSubmission(studentId: string, activityId: string,
     if (!service.registry.activityMatchesActiveRevision(activity) || filterAvailableActivities([activity], learningPath.availability).length === 0) throw new Error("Activity is not currently available for this student.");
     const activityArtifactId = typeof activityRow.artifact_id === "string" ? activityRow.artifact_id : "";
     if (!activityArtifactId) throw new Error("Activity has no source artifact.");
-    const commonMetadata = { studentId, activityId, kind: "submission-photo", needsReview: true, originalName: file.name, declaredMime: file.type || undefined };
+    const retryRow = retryOfSubmissionId ? service.db.prepare("SELECT student_id,activity_id,artifact_id FROM submissions WHERE id = ?").get(retryOfSubmissionId) as { student_id: string; activity_id: string; artifact_id: string | null } | undefined : undefined;
+    if (retryOfSubmissionId && (!retryRow || retryRow.student_id !== studentId || retryRow.activity_id !== activityId)) throw new Error("Retry source must be a prior submission for the same learner and activity.");
+    const commonMetadata = { studentId, activityId, kind: "submission-photo", needsReview: true, originalName: file.name, declaredMime: file.type || undefined, ...(retryOfSubmissionId ? { retryOfSubmissionId } : {}) };
     const originalArtifact = await service.store.put(originalBytes, { mediaType: normalized.mediaType, fileExtension: normalized.extension, metadata: { ...commonMetadata, artifactRole: "original-upload" } });
     const unchanged = originalBytes.byteLength === normalized.bytes.byteLength && originalBytes.every((value, index) => value === normalized.bytes[index]);
     // The SQLite artifacts table enforces one row per SHA-256. A clean image is already normalized,
@@ -229,15 +199,17 @@ export async function savePhotoSubmission(studentId: string, activityId: string,
       ? originalArtifact
       : await service.store.put(normalized.bytes, { mediaType: normalized.mediaType, fileExtension: normalized.extension, metadata: { ...commonMetadata, artifactRole: "normalized-review-upload", normalizedFrom: originalArtifact.id } });
     const now = new Date().toISOString();
-    const submission = SubmissionSchema.parse({ id: `submission-photo-${randomUUID()}`, activityId, studentId, responses: [], submittedAt: now, artifactId: normalizedArtifact.id });
+    const submission = SubmissionSchema.parse({ id: `submission-photo-${randomUUID()}`, activityId, studentId, responses: [], submittedAt: now, artifactId: normalizedArtifact.id, ...(retryOfSubmissionId ? { retryOfSubmissionId } : {}) });
     await service.store.addLineageEdge(activityArtifactId, originalArtifact.id, "submitted-from");
+    if (retryRow?.artifact_id) await service.store.addLineageEdge(retryRow.artifact_id, originalArtifact.id, "retry-of");
     if (!unchanged) await service.store.addLineageEdge(originalArtifact.id, normalizedArtifact.id, "normalized-from");
     const tx = service.db.transaction(() => {
       service.repo.recordArtifact({ id: originalArtifact.id, sha256: originalArtifact.sha256, mediaType: originalArtifact.mediaType, byteLength: originalArtifact.byteLength, relativePath: originalArtifact.relativePath, metadata: originalArtifact.metadata });
       if (!unchanged) service.repo.recordArtifact({ id: normalizedArtifact.id, sha256: normalizedArtifact.sha256, mediaType: normalizedArtifact.mediaType, byteLength: normalizedArtifact.byteLength, relativePath: normalizedArtifact.relativePath, metadata: normalizedArtifact.metadata });
       service.repo.addArtifactEdge({ parentArtifactId: activityArtifactId, childArtifactId: originalArtifact.id, relation: "submitted-from" });
+      if (retryRow?.artifact_id) service.repo.addArtifactEdge({ parentArtifactId: retryRow.artifact_id, childArtifactId: originalArtifact.id, relation: "retry-of" });
       if (!unchanged) service.repo.addArtifactEdge({ parentArtifactId: originalArtifact.id, childArtifactId: normalizedArtifact.id, relation: "normalized-from" });
-      service.repo.recordSubmission({ id: submission.id, studentId, activityId, submittedAt: now, responses: [], artifactId: normalizedArtifact.id, operationKey: `web:photo:${submission.id}` });
+      service.repo.recordSubmission({ id: submission.id, studentId, activityId, submittedAt: now, responses: [], artifactId: normalizedArtifact.id, ...(retryOfSubmissionId ? { retryOfSubmissionId } : {}), operationKey: `web:photo:${submission.id}` });
     });
     tx();
     const proposal = await service.proposeUploadedWorkEvaluation({ submissionId: submission.id, evidence: ["photo-upload-requires-adult-review"], confidence: 0.1, rationale: "A local photo was submitted. An adult must inspect the work; no OCR was performed." });
@@ -251,7 +223,7 @@ export async function savePhotoSubmission(studentId: string, activityId: string,
       evaluation: proposal.evaluation,
       needsReview: true,
     };
-  });
+  }, scope);
 }
 
 export async function confirmEvaluation(evaluationId: string, reviewerId: string, score: number, rationale: string) { return withService((service) => service.confirmEvaluation({ evaluationId, reviewerId, score, rationale })); }
@@ -270,7 +242,9 @@ export async function applyLearningDirective(input: { id: string; studentId: str
     return { ...result, materializedActivity };
   });
 }
-export async function generateProgressReport(studentId: string) { return withService((service) => service.generateProgressReport(studentId)); }
+export async function generateProgressReport(studentId: string, options?: { kind?: "current" | "monthly" | "quarterly"; selectedDate?: string; timeZone?: string; asOf?: string }) { return withService((service) => service.generateProgressReport(studentId, options ?? {})); }
+export async function listProgressReports(studentId: string, kind?: "current" | "monthly" | "quarterly") { return withService((service) => service.repo.listReportSnapshots(studentId, kind)); }
+export async function getProgressReportAtOrBefore(studentId: string, asOf: string, kind?: "current" | "monthly" | "quarterly") { return withService((service) => service.repo.getReportAtOrBefore(studentId, asOf, kind)); }
 export async function getReport(reportId: string) { return withService((service) => service.db.prepare("SELECT * FROM report_snapshots WHERE id = ?").get(reportId) as Record<string, unknown> | undefined); }
 
 export async function getArtifactContent(artifactId: string) {

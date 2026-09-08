@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { sanitizeAdultReturnPath } from "./lib/routes";
 
 async function pinToken(pin: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`learning-worktable:${pin}`));
@@ -12,13 +13,14 @@ export async function proxy(request: NextRequest) {
   if (current === await pinToken(pin)) return NextResponse.next();
   const unlock = new URL("/adult/unlock", request.url);
   if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Adult PIN required.", unlockUrl: unlock.pathname }, { status: 401 });
-  unlock.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  unlock.searchParams.set("next", sanitizeAdultReturnPath(`${request.nextUrl.pathname}${request.nextUrl.search}`));
   return NextResponse.redirect(unlock);
 }
 
 export const config = {
   matcher: [
     "/adult/:path*",
+    "/demo/adult/:path*",
     "/setup",
     "/print/:path*",
     "/api/activities/generate",

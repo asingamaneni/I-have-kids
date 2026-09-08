@@ -1,4 +1,6 @@
-import Link from "next/link";
-import { AppShell } from "@/components/AppShell";
-import { getStudent } from "@/lib/data";
-export default async function CompletionPage({ params }: { params: Promise<{ studentId: string }> }) { const { studentId } = await params; const student = await getStudent(studentId); if (!student) return <main className="empty-state"><h1>Student not found</h1></main>; return <AppShell student={student}><main className="content-wrap completion-page"><div className="completion-star" aria-hidden="true">✦</div><p className="eyebrow">Nice work</p><h1>You finished a practice moment.</h1><p>Your work is saved for an adult to look at. You can choose another page or take a break.</p><div className="landing-actions"><Link className="button button-primary" href={`/child/${studentId}`}>Choose another page</Link><Link className="button button-paper" href={`/adult/${studentId}`}>Adult view</Link></div></main></AppShell>; }
+import { CompletionView } from "@/components/CompletionView";
+
+export default async function CompletionPage({ params, searchParams }: { params: Promise<{ studentId: string }>; searchParams: Promise<{ submissionId?: string }> }) {
+  const [{ studentId }, query] = await Promise.all([params, searchParams]);
+  return <CompletionView studentId={studentId} {...(query.submissionId ? { submissionId: query.submissionId } : {})} />;
+}

@@ -10,6 +10,8 @@ export interface StudentInput {
   displayName: string;
   birthDate?: string;
   grade?: string;
+  dataScope?: "household" | "demo" | "legacy-mixed";
+  sourceDatasetId?: string;
   metadata?: JsonObject;
 }
 
@@ -33,6 +35,7 @@ export interface SubmissionInput {
   attemptNumber?: number;
   submittedAt?: string;
   artifactId?: string;
+  retryOfSubmissionId?: string;
   payload?: JsonObject;
   operationKey?: string;
 }
@@ -159,18 +162,26 @@ export class LearningRepository {
     return this.db.prepare("SELECT * FROM students WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   }
 
-  listStudents(): Record<string, unknown>[] {
-    return this.db.prepare("SELECT * FROM students ORDER BY created_at, id").all() as Record<string, unknown>[];
+  listStudents(scopes: readonly ("household" | "demo" | "legacy-mixed")[] = ["household", "legacy-mixed"]): Record<string, unknown>[] {
+    if (scopes.length === 0) return [];
+    const placeholders = scopes.map(() => "?").join(",");
+    return this.db.prepare(`SELECT * FROM students WHERE data_scope IN (${placeholders}) ORDER BY created_at, id`).all(...scopes) as Record<string, unknown>[];
   }
 
   saveStudent(input: StudentInput): Record<string, unknown> {
     const now = this.clock();
-    this.db.prepare(`INSERT INTO students (id, display_name, birth_date, grade, created_at, updated_at, metadata_json)
-      VALUES (@id, @displayName, @birthDate, @grade, @now, @now, @metadata)
+    const existing = this.getStudent(input.id);
+    const requestedScope = input.dataScope ?? (existing?.data_scope as StudentInput["dataScope"] | undefined) ?? "household";
+    const existingDataset = typeof existing?.source_dataset_id === "string" ? existing.source_dataset_id : undefined;
+    const requestedDataset = input.sourceDatasetId ?? existingDataset;
+    if (requestedScope === "household" && (input.id.startsWith("synthetic-demo-") || input.id.startsWith("student-demo-"))) throw new Error("The synthetic demo id namespace is reserved.");
+    if (existing && (String(existing.data_scope) !== requestedScope || existingDataset !== requestedDataset)) throw new Error("Student data scope and dataset ownership cannot be changed by saveStudent.");
+    this.db.prepare(`INSERT INTO students (id, display_name, birth_date, grade, data_scope, source_dataset_id, created_at, updated_at, metadata_json)
+      VALUES (@id, @displayName, @birthDate, @grade, @dataScope, @sourceDatasetId, @now, @now, @metadata)
       ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name, birth_date=excluded.birth_date,
         grade=excluded.grade, updated_at=excluded.updated_at, metadata_json=excluded.metadata_json`).run({
       id: input.id, displayName: input.displayName, birthDate: input.birthDate ?? null,
-      grade: input.grade ?? null, now, metadata: json(input.metadata)
+      grade: input.grade ?? null, dataScope: requestedScope, sourceDatasetId: requestedDataset ?? null, now, metadata: json(input.metadata)
     });
     return this.getStudent(input.id) as Record<string, unknown>;
   }
@@ -315,10 +326,14 @@ export class LearningRepository {
       if (prior) return prior;
     }
     const payload = input.payload ?? (input.responses ? { responses: input.responses } : {});
-    const row = this.db.prepare(`INSERT INTO submissions (id,student_id,activity_id,attempt_number,submitted_at,artifact_id,payload_json,operation_key)
-      VALUES (@id,@studentId,@activityId,@attemptNumber,@submittedAt,@artifactId,@payload,@operationKey) RETURNING *`).get({
-      ...input, attemptNumber: input.attemptNumber ?? 1, submittedAt: input.submittedAt ?? this.clock(),
-      artifactId: input.artifactId ?? null, payload: json(payload), operationKey: input.operationKey ?? null
+    if (input.retryOfSubmissionId) {
+      const prior = this.db.prepare("SELECT student_id, activity_id FROM submissions WHERE id = ?").get(input.retryOfSubmissionId) as { student_id: string; activity_id: string } | undefined;
+      if (!prior || prior.student_id !== input.studentId || prior.activity_id !== input.activityId) throw new Error("A retry must reference a prior submission for the same learner and activity.");
+    }
+    const row = this.db.prepare(`INSERT INTO submissions (id,student_id,activity_id,attempt_number,submitted_at,artifact_id,retry_of_submission_id,payload_json,operation_key)
+      VALUES (@id,@studentId,@activityId,@attemptNumber,@submittedAt,@artifactId,@retryOfSubmissionId,@payload,@operationKey) RETURNING *`).get({
+      ...input, attemptNumber: input.attemptNumber ?? this.getNextAttemptNumber(input.studentId, input.activityId), submittedAt: input.submittedAt ?? this.clock(),
+      artifactId: input.artifactId ?? null, retryOfSubmissionId: input.retryOfSubmissionId ?? null, payload: json(payload), operationKey: input.operationKey ?? null
     }) as Record<string, unknown>;
     for (const response of input.responses ?? []) {
       this.recordResponse({ id: `${input.id}:${response.itemId}`, submissionId: input.id, itemKey: response.itemId, response: { value: response.value, capturedAt: response.capturedAt } });
@@ -332,8 +347,26 @@ export class LearningRepository {
       input.id, input.submissionId, input.itemKey, json(input.response), input.createdAt ?? this.clock());
   }
 
+  getNextAttemptNumber(studentId: string, activityId: string): number {
+    const row = this.db.prepare("SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next FROM submissions WHERE student_id = ? AND activity_id = ?").get(studentId, activityId) as { next: number };
+    return Number(row.next);
+  }
+
   listSubmissions(studentId: string): Record<string, unknown>[] {
     return this.db.prepare("SELECT * FROM submissions WHERE student_id = ? ORDER BY submitted_at, id").all(studentId) as Record<string, unknown>[];
+  }
+
+  getLatestSubmissionsByActivity(studentId: string): Record<string, unknown>[] {
+    return this.db.prepare(`SELECT s.* FROM submissions s WHERE s.student_id = ? AND s.rowid = (
+      SELECT s2.rowid FROM submissions s2 WHERE s2.student_id = s.student_id AND s2.activity_id = s.activity_id
+      ORDER BY s2.submitted_at DESC, s2.id DESC LIMIT 1
+    ) ORDER BY s.submitted_at DESC, s.id DESC`).all(studentId) as Record<string, unknown>[];
+  }
+
+  listEvaluationsForSubmissions(submissionIds: readonly string[]): Record<string, unknown>[] {
+    if (submissionIds.length === 0) return [];
+    const placeholders = submissionIds.map(() => "?").join(",");
+    return this.db.prepare(`SELECT * FROM evaluations WHERE submission_id IN (${placeholders}) ORDER BY evaluated_at, id`).all(...submissionIds) as Record<string, unknown>[];
   }
 
   listEvaluations(studentId: string): Record<string, unknown>[] {
@@ -437,13 +470,34 @@ export class LearningRepository {
   saveReportSnapshot(input: ReportSnapshotInput): Record<string, unknown> {
     if (input.operationKey) { const prior = this.operationResult(input.operationKey); if (prior) return prior; }
     const report = input.report;
-    const row = this.db.prepare(`INSERT INTO report_snapshots (id,student_id,report_type,as_of,artifact_id,report_json,content_json,created_at,operation_key)
-      VALUES (@id,@studentId,@reportType,@asOf,@artifactId,@reportJson,@content,@createdAt,@operationKey) RETURNING *`).get({
-      id: report.id, studentId: report.studentId, reportType: input.reportType ?? "progress-summary", asOf: report.asOf,
+    const row = this.db.prepare(`INSERT INTO report_snapshots (id,student_id,report_type,as_of,period_start,period_end,time_zone,artifact_id,report_json,content_json,created_at,operation_key)
+      VALUES (@id,@studentId,@reportType,@asOf,@periodStart,@periodEnd,@timeZone,@artifactId,@reportJson,@content,@createdAt,@operationKey) RETURNING *`).get({
+      id: report.id, studentId: report.studentId, reportType: input.reportType ?? report.kind ?? "current", asOf: report.asOf,
+      periodStart: report.period?.startInclusive ?? null, periodEnd: report.period?.endExclusive ?? null, timeZone: report.period?.timeZone ?? null,
       artifactId: input.artifactId ?? report.artifactId ?? null, reportJson: JSON.stringify(report), content: json(input.content ?? { summary: report.summary }), createdAt: this.clock(), operationKey: input.operationKey ?? null
     }) as Record<string, unknown>;
     this.saveOperation(input.operationKey, "report_snapshot", row);
     return row;
+  }
+
+  listReportSnapshots(studentId: string, kind?: "current" | "monthly" | "quarterly"): Record<string, unknown>[] {
+    return (kind
+      ? this.db.prepare("SELECT * FROM report_snapshots WHERE student_id = ? AND report_type = ? ORDER BY as_of DESC, created_at DESC, rowid DESC").all(studentId, kind)
+      : this.db.prepare("SELECT * FROM report_snapshots WHERE student_id = ? ORDER BY as_of DESC, created_at DESC, rowid DESC").all(studentId)) as Record<string, unknown>[];
+  }
+
+  getReportAtOrBefore(studentId: string, asOf: string, kind?: "current" | "monthly" | "quarterly"): Record<string, unknown> | undefined {
+    return (kind
+      ? this.db.prepare("SELECT * FROM report_snapshots WHERE student_id = ? AND report_type = ? AND as_of <= ? ORDER BY as_of DESC, created_at DESC, rowid DESC LIMIT 1").get(studentId, kind, asOf)
+      : this.db.prepare("SELECT * FROM report_snapshots WHERE student_id = ? AND as_of <= ? ORDER BY as_of DESC, created_at DESC, rowid DESC LIMIT 1").get(studentId, asOf)) as Record<string, unknown> | undefined;
+  }
+
+  recordSyntheticDataset(input: { id: string; version: string; studentId: string; manifest: JsonObject; seededAt?: string }): void {
+    this.db.prepare("INSERT INTO synthetic_datasets (id,version,student_id,manifest_json,seeded_at) VALUES (?,?,?,?,?)").run(input.id, input.version, input.studentId, json(input.manifest), input.seededAt ?? this.clock());
+  }
+
+  getSyntheticDataset(id: string): Record<string, unknown> | undefined {
+    return this.db.prepare("SELECT * FROM synthetic_datasets WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   }
 
   operationResult(operationKey: string): Record<string, unknown> | undefined {

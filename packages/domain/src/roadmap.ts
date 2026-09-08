@@ -88,8 +88,10 @@ export function projectLearnerRoadmaps(input: { studentId: string; registry: Cur
       }
     }
     const edges = [...edgeMap.values()];
-    const currentNodeIds = nodes.filter((node) => node.status === "current").map((node) => node.id);
-    const readyNodeIds = nodes.filter((node) => node.status === "ready").map((node) => node.id);
+    const explicitCurrentNodeIds = nodes.filter((node) => node.status === "current").map((node) => node.id);
+    const readyNodes = nodes.filter((node) => node.status === "ready").sort((left, right) => (availabilityById.get(right.conceptId)?.priority ?? 0) - (availabilityById.get(left.conceptId)?.priority ?? 0) || left.depth - right.depth || left.id.localeCompare(right.id));
+    const readyNodeIds = readyNodes.map((node) => node.id);
+    const currentNodeIds = explicitCurrentNodeIds.length > 0 ? explicitCurrentNodeIds : readyNodeIds.slice(0, 1);
     const completedNodeIds = nodes.filter((node) => node.status === "completed").map((node) => node.id);
     const coreNodes = nodes.filter((node) => node.branchKind === "core" || node.branchKind === "extension");
     const expansionNeeded = coreNodes.length > 0 && coreNodes.every((node) => node.status === "completed");

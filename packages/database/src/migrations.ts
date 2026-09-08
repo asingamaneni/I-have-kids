@@ -312,6 +312,20 @@ CREATE TRIGGER IF NOT EXISTS roadmap_reconciliation_runs_no_update BEFORE UPDATE
 CREATE TRIGGER IF NOT EXISTS roadmap_reconciliation_runs_no_delete BEFORE DELETE ON roadmap_reconciliation_runs BEGIN SELECT RAISE(ABORT, 'roadmap_reconciliation_runs are append-only'); END;
 `;
 
+export const MIGRATION_005 = `
+CREATE TABLE IF NOT EXISTS synthetic_datasets (
+  id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  student_id TEXT NOT NULL REFERENCES students(id),
+  manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
+  seeded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_submissions_student_activity_time ON submissions(student_id, activity_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_reports_student_as_of ON report_snapshots(student_id, as_of DESC, created_at DESC);
+CREATE TRIGGER IF NOT EXISTS synthetic_datasets_no_update BEFORE UPDATE ON synthetic_datasets BEGIN SELECT RAISE(ABORT, 'synthetic_datasets are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS synthetic_datasets_no_delete BEFORE DELETE ON synthetic_datasets BEGIN SELECT RAISE(ABORT, 'synthetic_datasets are append-only'); END;
+`;
+
 function hasColumn(db: SqliteDatabase, table: string, column: string): boolean {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((entry) => entry.name === column);
 }
@@ -329,6 +343,37 @@ function migrateExpandedColumns(db: SqliteDatabase): void {
   for (const [column, definition] of ([["generated_at", "TEXT"], ["policy_version", "TEXT"], ["recommendation_json", "TEXT NOT NULL DEFAULT '{}'" ]] as const)) addColumnIfMissing(db, "recommendations", column, definition);
   for (const [column, definition] of ([["concept_id", "TEXT"], ["target_step", "INTEGER"], ["original_decision", "TEXT"], ["override_json", "TEXT NOT NULL DEFAULT '{}'" ]] as const)) addColumnIfMissing(db, "human_overrides", column, definition);
   for (const [column, definition] of ([["as_of", "TEXT"], ["report_json", "TEXT NOT NULL DEFAULT '{}'" ]] as const)) addColumnIfMissing(db, "report_snapshots", column, definition);
+}
+
+function classifyLegacyDemo(db: SqliteDatabase): void {
+  const demo = db.prepare("SELECT 1 FROM students WHERE id = 'student-demo-ava'").get();
+  if (!demo) return;
+  const canonicalActivityIds = ["activity-addition-01", "activity-addition-02", "activity-addition-03", "activity-addition-04", "activity-addition-next", "activity-english-letter-sounds", "activity-subtraction-01", "activity-equal-groups-01", "activity-fair-sharing-01", "activity-handwriting-01", "activity-reading-detail-01", "activity-reasoning-01", "activity-science-observation-01"];
+  const canonicalSubmissionIds = ["submission-demo-addition-1", "submission-demo-addition-2", "submission-demo-addition-3", "submission-demo-addition-4", "submission-demo-english"];
+  const placeholders = (values: readonly string[]) => values.map(() => "?").join(",");
+  const count = (sql: string, ...args: unknown[]) => Number((db.prepare(sql).get(...args) as { count: number }).count);
+  const activityCount = count("SELECT COUNT(*) AS count FROM activities WHERE student_id = 'student-demo-ava'");
+  const submissionCount = count("SELECT COUNT(*) AS count FROM submissions WHERE student_id = 'student-demo-ava'");
+  const extraActivities = count(`SELECT COUNT(*) AS count FROM activities WHERE student_id = 'student-demo-ava' AND id NOT IN (${placeholders(canonicalActivityIds)})`, ...canonicalActivityIds);
+  const extraSubmissions = count(`SELECT COUNT(*) AS count FROM submissions WHERE student_id = 'student-demo-ava' AND id NOT IN (${placeholders(canonicalSubmissionIds)})`, ...canonicalSubmissionIds);
+  const evaluationCount = count("SELECT COUNT(*) AS count FROM evaluations e JOIN submissions s ON s.id = e.submission_id WHERE s.student_id = 'student-demo-ava'");
+  const progressCount = count("SELECT COUNT(*) AS count FROM progress_events WHERE student_id = 'student-demo-ava'");
+  const recommendationCount = count("SELECT COUNT(*) AS count FROM recommendations WHERE student_id = 'student-demo-ava'");
+  const overrideCount = count("SELECT COUNT(*) AS count FROM human_overrides WHERE student_id = 'student-demo-ava'");
+  const reportCount = count("SELECT COUNT(*) AS count FROM report_snapshots WHERE student_id = 'student-demo-ava'");
+  const canonical = activityCount === canonicalActivityIds.length && submissionCount === canonicalSubmissionIds.length && extraActivities === 0 && extraSubmissions === 0 && evaluationCount === 5 && progressCount === 6 && recommendationCount === 1 && overrideCount === 1 && reportCount === 1;
+  const scope = canonical ? "demo" : "legacy-mixed";
+  db.prepare("UPDATE students SET data_scope = ?, source_dataset_id = ? WHERE id = 'student-demo-ava'").run(scope, scope === "demo" ? "legacy-demo-v1" : null);
+}
+
+function migrateIntegrityColumns(db: SqliteDatabase): void {
+  addColumnIfMissing(db, "students", "data_scope", "TEXT NOT NULL DEFAULT 'household' CHECK (data_scope IN ('household','demo','legacy-mixed'))");
+  addColumnIfMissing(db, "students", "source_dataset_id", "TEXT");
+  addColumnIfMissing(db, "submissions", "retry_of_submission_id", "TEXT REFERENCES submissions(id)");
+  addColumnIfMissing(db, "report_snapshots", "period_start", "TEXT");
+  addColumnIfMissing(db, "report_snapshots", "period_end", "TEXT");
+  addColumnIfMissing(db, "report_snapshots", "time_zone", "TEXT");
+  classifyLegacyDemo(db);
 }
 
 export function migrateDatabase(db: SqliteDatabase): void {
@@ -364,6 +409,15 @@ export function migrateDatabase(db: SqliteDatabase): void {
       db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (4, ?)").run(new Date().toISOString());
     });
     applyAdaptiveCurriculum();
+  }
+  const integrityRefinement = db.prepare("SELECT 1 FROM schema_migrations WHERE id = 5").get();
+  if (!integrityRefinement) {
+    const applyIntegrityRefinement = db.transaction(() => {
+      migrateIntegrityColumns(db);
+      db.exec(MIGRATION_005);
+      db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (5, ?)").run(new Date().toISOString());
+    });
+    applyIntegrityRefinement();
   }
 }
 

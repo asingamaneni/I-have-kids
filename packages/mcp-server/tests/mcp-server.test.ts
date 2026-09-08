@@ -2,17 +2,17 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { createLocalService, resolveProjectRoot } from "../src/service.js";
+import { createDemoService, createLocalService, resolveProjectRoot } from "../src/service.js";
 
 async function withService(test: (service: ReturnType<typeof createLocalService>) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "kindergarten-mcp-"));
-  const service = createLocalService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-02-01T00:00:00.000Z" });
+  const root = await mkdtemp(join(tmpdir(), "child-learning-mcp-"));
+  const service = createDemoService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-02-01T00:00:00.000Z" });
   try { await test(service); } finally { service.close(); await rm(root, { recursive: true, force: true }); }
 }
 
 describe("local MCP service", () => {
   it("shares one workspace database between the web app and Claude Code", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kindergarten-shared-data-"));
+    const root = await mkdtemp(join(tmpdir(), "child-learning-shared-data-"));
     try {
       await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
       const legacyDatabase = join(root, "apps/web/.data/learning-worktable.db");
@@ -29,7 +29,7 @@ describe("local MCP service", () => {
   });
 
   it("uses the workspace data directory for both new web and Claude processes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kindergarten-workspace-data-"));
+    const root = await mkdtemp(join(tmpdir(), "child-learning-workspace-data-"));
     try {
       await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
       const webRoot = resolveProjectRoot({}, join(root, "apps/web"));
@@ -45,11 +45,29 @@ describe("local MCP service", () => {
   });
 
   it("resolves configured relative data paths from the workspace root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kindergarten-explicit-data-"));
+    const root = await mkdtemp(join(tmpdir(), "child-learning-explicit-data-"));
     try {
       const service = createLocalService({ projectRoot: root, databasePath: "family/learning.db", artifactsDir: "family/artifacts", env: {} });
       expect(service.demoStatus()).toMatchObject({ dataLocation: "explicit", databasePath: join(root, "family/learning.db"), artifactsDir: join(root, "family/artifacts") });
       service.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("keeps synthetic demo evidence outside the household database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "child-learning-demo-isolation-"));
+    try {
+      const household = createLocalService({ projectRoot: root, env: {} });
+      household.createStudent({ id: "household-student", displayName: "Household Learner" });
+      household.close();
+      const demo = createDemoService({ projectRoot: root, env: {} });
+      expect(demo.databasePath).toBe(join(root, ".data/demo/learning-worktable.db"));
+      await demo.initializeDemo("2026-02-01T00:00:00.000Z");
+      expect(demo.listStudents()).toEqual([expect.objectContaining({ id: "student-demo-ava", dataScope: "demo" })]);
+      demo.close();
+      const reopened = createLocalService({ projectRoot: root, env: {} });
+      expect(reopened.listStudents()).toEqual([expect.objectContaining({ id: "household-student", dataScope: "household" })]);
+      expect(reopened.repo.getStudent("student-demo-ava")).toBeUndefined();
+      reopened.close();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
@@ -67,14 +85,37 @@ describe("local MCP service", () => {
 
   it("uses adult-reported capabilities to choose diagnostics without recording mastery", async () => {
     await withService(async (service) => {
-      const student = service.createStudent({ id: "student-baseline", displayName: "Baseline Learner", reportedCapabilities: ["math.adds-with-symbols"], baselineNotes: "Builds number stories with blocks.", baselineStatus: "diagnostic-in-progress" });
+      const result = await service.createLearnerWithIntake({ id: "student-baseline", displayName: "Baseline Learner", selectedSubjects: ["math"], currentCapabilities: ["math.adds-with-symbols"], baselineNotes: "Builds number stories with blocks." });
+      const student = result.student as { id: string; reportedCapabilities: string[]; baselineStatus: string };
       expect(student).toMatchObject({ reportedCapabilities: ["math.adds-with-symbols"], baselineStatus: "diagnostic-in-progress" });
       expect(service.getProgress(student.id).states).toHaveLength(0);
-      await service.applyLearningDirective({ id: "baseline-directive", studentId: student.id, conceptId: "math.addition-within-10", action: "assess", reason: "Verify the reported capability.", authorId: "adult", requestedStage: "abstract" });
+      expect((result.starters as unknown[])).toHaveLength(1);
       const path = service.getLearningPath(student.id) as { availability: Array<{ conceptId: string; status: string; currentStage: string; priority: number; reason: string }> };
       expect(path.availability.find((concept) => concept.conceptId === "math.addition-within-10")).toMatchObject({ status: "available", currentStage: "abstract", priority: 5 });
       expect(path.availability.find((concept) => concept.conceptId === "math.addition-within-10")?.reason).toContain("does not count as mastery");
       expect(service.getProgress(student.id).states).toHaveLength(0);
+    });
+  });
+
+  it("creates no worksheet until intake is explicit", async () => {
+    await withService(async (service) => {
+      const result = await service.createLearnerWithIntake({ id: "student-awaiting-intake", displayName: "Awaiting Learner", selectedSubjects: ["math", "english"], baselineNotes: "Parent will complete the questionnaire later." });
+      expect(result).toMatchObject({ baselineMode: "awaiting-intake", starters: [] });
+      expect((result.student as { baselineStatus: string }).baselineStatus).toBe("awaiting-intake");
+      expect(service.repo.listActivities("student-awaiting-intake")).toHaveLength(0);
+      expect(service.getProgress("student-awaiting-intake").states).toHaveLength(0);
+      expect(() => service.generateActivity({ studentId: "student-awaiting-intake", seed: 1 })).toThrow(/intake/);
+    });
+  });
+
+  it("places an advanced reported level without creating foundational mastery", async () => {
+    await withService(async (service) => {
+      const result = await service.createLearnerWithIntake({ id: "advanced-intake", displayName: "Advanced Learner", selectedSubjects: ["math"], currentCapabilities: ["math.solves-linear-equations"] });
+      expect(result.targets).toEqual([expect.objectContaining({ conceptId: "math.linear-equations", stage: "independent" })]);
+      expect(service.repo.listActivities("advanced-intake").map((row) => row.concept_id)).toEqual(["math.linear-equations"]);
+      expect(service.getProgress("advanced-intake").states).toHaveLength(0);
+      const path = service.getLearningPath("advanced-intake") as { directives: Array<{ conceptId: string; action: string }> };
+      expect(path.directives).toContainEqual(expect.objectContaining({ conceptId: "math.linear-equations", action: "assess" }));
     });
   });
 
@@ -117,6 +158,22 @@ describe("local MCP service", () => {
       expect(result.evaluation).toHaveProperty("score", 1);
       expect(service.getProgress("student-demo-ava", generated.conceptId).history.length).toBeGreaterThan(0);
       await expect(service.validateAndStoreActivity({ ...generated, answerSpecs: { [generated.items[0]!.id]: { type: "integer", expected: 999 } } })).rejects.toThrow(/answerSpecs|answer does not match/);
+    });
+  });
+
+  it("tracks current work lifecycle and exact worksheet retries", async () => {
+    await withService(async (service) => {
+      await service.initializeDemo("2026-02-01T00:00:00.000Z");
+      const activity = service.getActivity("activity-addition-01", true) as { id: string; items: Array<{ id: string }>; answerSpecs: Record<string, { type: string; expected: unknown }> };
+      const retry = await service.recordDigitalSubmission({ id: "retry-submission", activityId: activity.id, studentId: "student-demo-ava", retryOfSubmissionId: "submission-demo-addition-1", responses: activity.items.map((item) => ({ itemId: item.id, value: activity.answerSpecs[item.id]?.expected, capturedAt: "2026-02-02T00:00:00.000Z" })) });
+      expect((retry.submission as { retryOfSubmissionId?: string }).retryOfSubmissionId).toBe("submission-demo-addition-1");
+      const row = service.db.prepare("SELECT attempt_number,retry_of_submission_id FROM submissions WHERE id = ?").get("retry-submission") as { attempt_number: number; retry_of_submission_id: string };
+      expect(row).toEqual({ attempt_number: 2, retry_of_submission_id: "submission-demo-addition-1" });
+      const work = service.projectLearnerWork("student-demo-ava") as { current: Array<{ activity: { id: string }; status: string }>; history: Array<{ activity: { id: string }; status: string; attemptCount: number }> };
+      expect(work.current.some((entry) => entry.activity.id === activity.id)).toBe(false);
+      expect(work.history.find((entry) => entry.activity.id === activity.id)).toMatchObject({ status: "complete", attemptCount: 2 });
+      const retryArtifact = (retry.artifacts as Array<{ id: string }>)[0]!.id;
+      expect((await service.getArtifactLineage(retryArtifact)).parents).toEqual(expect.arrayContaining([expect.objectContaining({ relation: "retry-of" })]));
     });
   });
 
@@ -176,6 +233,19 @@ describe("local MCP service", () => {
     });
   });
 
+  it("generates historical reports without future evidence or roadmap reconciliation", async () => {
+    await withService(async (service) => {
+      await service.initializeDemo("2026-02-01T00:00:00.000Z");
+      const before = Number((service.db.prepare("SELECT COUNT(*) AS count FROM roadmap_reconciliation_runs").get() as { count: number }).count);
+      const result = await service.generateProgressReport("student-demo-ava", { kind: "current", asOf: "2026-01-15T00:00:00.000Z", timeZone: "UTC" });
+      const report = result.report as { asOf: string; conceptStates: unknown[]; worksheetSummaries: unknown[] };
+      expect(report.asOf).toBe("2026-01-15T00:00:00.000Z");
+      expect(report.conceptStates).toHaveLength(0);
+      expect(report.worksheetSummaries).toHaveLength(0);
+      expect(Number((service.db.prepare("SELECT COUNT(*) AS count FROM roadmap_reconciliation_runs").get() as { count: number }).count)).toBe(before);
+    });
+  });
+
   it("requires adult approval before activating an open-ended subject graph", async () => {
     await withService(async (service) => {
       service.createStudent({ id: "student-roadmap", displayName: "Roadmap Learner", selectedSubjects: ["civics"] });
@@ -184,6 +254,9 @@ describe("local MCP service", () => {
       await expect(service.activateCurriculumRevision({ proposalId: "proposal-communities", actorId: "adult", reason: "Too early" })).rejects.toThrow(/approval/);
       service.decideCurriculumRevision({ proposalId: "proposal-communities", decision: "approved", reviewerId: "adult", note: "Original and appropriate." });
       await service.activateCurriculumRevision({ proposalId: "proposal-communities", actorId: "adult", reason: "Add the requested subject." });
+      const repeated = await service.activateCurriculumRevision({ proposalId: "proposal-communities", actorId: "adult", reason: "Repeat activation." });
+      expect(repeated).toMatchObject({ alreadyActive: true, activation: null, reconciled: [] });
+      expect((service.listCurriculum().proposals as Array<{ active?: boolean }>)[0]).toMatchObject({ active: true });
       const roadmaps = service.getLearningRoadmaps("student-roadmap", true) as { roadmaps: Array<{ subject: string; nodes: unknown[] }> };
       expect(roadmaps.roadmaps).toEqual([expect.objectContaining({ subject: "civics" })]);
       expect(roadmaps.roadmaps[0]?.nodes).toHaveLength(1);
