@@ -3,10 +3,10 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { createDemoService, createLocalService, resolveProjectRoot, type LocalService } from "./service.js";
+import { createLocalService, resolveProjectRoot, type LocalService } from "./service.js";
 
-export { createDemoService, createLocalService, resolveProjectRoot } from "./service.js";
-export type { LocalService, LocalServiceOptions, DemoStatus } from "./service.js";
+export { createLocalService, requireDataPath, resolveProjectRoot } from "./service.js";
+export type { LocalService, LocalServiceOptions, DataStatus } from "./service.js";
 
 const okSchema = z.object({ ok: z.literal(true), result: z.unknown() });
 const text = (value: unknown): string => typeof value === "string" ? value : JSON.stringify(value);
@@ -29,14 +29,6 @@ export function createMcpServer(service = createLocalService()): McpServer {
     server.registerTool(name, { description, inputSchema, outputSchema: okSchema }, withErrors(handler));
   };
 
-  register("initialize_demo", "Seed the isolated child-learning demo idempotently; never writes to household learner data.", z.object({ now }), async ({ now: at }: { now?: string }) => {
-    const demo = createDemoService({ projectRoot: service.root });
-    try { return await demo.initializeDemo(at); } finally { demo.close(); }
-  });
-  register("demo_status", "Inspect isolated demo database counts and paths.", z.object({}), async () => {
-    const demo = createDemoService({ projectRoot: service.root });
-    try { return demo.demoStatus(); } finally { demo.close(); }
-  });
   register("list_students", "List local students without exposing answer keys.", z.object({}), async () => service.listStudents());
   register("create_student", "Create a local learner profile and, only when structured observed capabilities are supplied, place starting diagnostics near that reported level. Claims never count as mastery.", z.object({ id: studentId.optional(), displayName: z.string().min(1), birthDate: z.string().date().optional(), schoolPlacement: z.string().min(1).optional(), preferredLanguage: z.string().min(2).optional(), accommodations: z.array(z.string().min(1)).optional(), interests: z.array(z.string().min(1)).optional(), learningGoals: z.array(z.string().min(1)).optional(), selectedSubjects: z.array(z.string().min(1)).optional(), reportedCapabilities: z.array(z.string().min(1)).optional(), baselineNotes: z.string().min(1).optional() }), async ({ reportedCapabilities, ...input }: any) => service.createLearnerWithIntake({ ...input, ...(reportedCapabilities ? { currentCapabilities: reportedCapabilities } : {}) }));
   register("complete_student_intake", "Complete structured learner intake and generate diagnostics near the adult-reported or questionnaire-selected level.", z.object({ studentId, observedCapabilities: z.array(z.string().min(1)).default([]), questionnaireAnchors: z.array(z.object({ subject: z.string().min(1), capabilityId: z.string().min(1).optional(), entryDiagnostic: z.boolean().default(false) })).default([]), source: z.enum(["adult-observation", "questionnaire", "combined"]).default("adult-observation") }), async ({ studentId: id, ...intake }: any) => service.completeLearnerIntake(id, intake));
@@ -66,7 +58,7 @@ export function createMcpServer(service = createLocalService()): McpServer {
   register("generate_progress_report", "Create an immutable current, monthly, or quarterly report using only evidence available by the selected cutoff.", z.object({ studentId, kind: z.enum(["current", "monthly", "quarterly"]).default("current"), selectedDate: z.string().date(), timeZone: z.string().min(1).default("UTC") }), async ({ studentId: id, ...options }: { studentId: string; kind: "current" | "monthly" | "quarterly"; selectedDate: string; timeZone: string }) => service.generateProgressReport(id, options));
   register("compose_visual_asset", "Compose original local SVG from allow-listed semantic shapes and store it locally; no external assets.", z.object({ id: studentId.optional(), width: z.number().int().min(1).max(2000).optional(), height: z.number().int().min(1).max(2000).optional(), shapes: z.array(z.record(z.string(), z.unknown())).min(1), metadata: z.record(z.string(), z.unknown()).optional() }), async (input: any) => service.composeVisualAsset(input));
 
-  server.registerResource("demo-status", "child-learning://demo/status", { title: "Child learning demo status", description: "Local database status and counts", mimeType: "application/json" }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.demoStatus()) }] }));
+  server.registerResource("data-status", "child-learning://data/status", { title: "Child learning data status", description: "Local database status and counts", mimeType: "application/json" }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.dataStatus()) }] }));
   const studentTemplate = new ResourceTemplate("child-learning://students/{studentId}/progress", { list: undefined });
   server.registerResource("student-progress", studentTemplate, { title: "Student progress", description: "Child-safe local progress state", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.getProgress(String(variables.studentId))) }] }));
   const learningPathTemplate = new ResourceTemplate("child-learning://students/{studentId}/learning-path", { list: undefined });
@@ -78,7 +70,6 @@ export function createMcpServer(service = createLocalService()): McpServer {
   const lineageTemplate = new ResourceTemplate("child-learning://artifacts/{artifactId}/lineage", { list: undefined });
   server.registerResource("artifact-lineage", lineageTemplate, { title: "Artifact lineage", description: "Local artifact ancestry and descendants", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(await service.getArtifactLineage(String(variables.artifactId))) }] }));
 
-  server.registerResource("legacy-demo-status", "kindergarten://demo/status", { title: "Legacy demo status alias", description: "Read-only compatibility alias", mimeType: "application/json" }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.demoStatus()) }] }));
   const legacyProgress = new ResourceTemplate("kindergarten://students/{studentId}/progress", { list: undefined });
   server.registerResource("legacy-student-progress", legacyProgress, { title: "Legacy student progress alias", description: "Read-only compatibility alias", mimeType: "application/json" }, async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(service.getProgress(String(variables.studentId))) }] }));
   const legacyPath = new ResourceTemplate("kindergarten://students/{studentId}/learning-path", { list: undefined });

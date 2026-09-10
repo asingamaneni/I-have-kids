@@ -16,8 +16,6 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:migrate": "tsx packages/database/src/migrate.ts",
-    "seed": "tsx packages/demo/src/seed.ts",
-    "demo": "tsx packages/demo/src/run-demo.ts",
     "mcp": "tsx packages/mcp-server/src/server.ts",
     "plugin:bundle": "tsx scripts/bundle-mcp.ts",
     "plugin:clean:claude": "node -e \"require('node:fs').rmSync('dist/plugin/claude', { recursive: true, force: true })\"",

@@ -1,85 +1,68 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { createDemoService, createLocalService, resolveProjectRoot } from "../src/service.js";
+import { createLocalService, resolveProjectRoot } from "../src/service.js";
+import { seedFixture } from "./fixtures/seed-fixture.js";
 
 async function withService(test: (service: ReturnType<typeof createLocalService>) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "child-learning-mcp-"));
-  const service = createDemoService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-02-01T00:00:00.000Z" });
+  const service = createLocalService({ projectRoot: root, databasePath: join(root, "learning.db"), artifactsDir: join(root, "artifacts"), clock: () => "2026-02-01T00:00:00.000Z" });
   try { await test(service); } finally { service.close(); await rm(root, { recursive: true, force: true }); }
 }
 
 describe("local MCP service", () => {
-  it("shares one workspace database between the web app and Claude Code", async () => {
+  it("requires an explicit data location instead of guessing a default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "child-learning-no-default-"));
+    try {
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+      expect(() => createLocalService({ projectRoot: root, env: {} })).toThrow(/CHILD_LEARNING_DB_PATH is not set/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("ignores a stray apps/web/.data database instead of silently preferring it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "child-learning-no-legacy-"));
+    try {
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+      await mkdir(join(root, "apps/web/.data"), { recursive: true });
+      await writeFile(join(root, "apps/web/.data/learning-worktable.db"), "");
+      const configured = join(root, "family/learning.db");
+      const service = createLocalService({ projectRoot: root, env: { CHILD_LEARNING_DB_PATH: configured, CHILD_LEARNING_ARTIFACTS_DIR: join(root, "family/artifacts") } });
+      expect(service.databasePath).toBe(configured);
+      service.close();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("gives the web app and Claude Code the same store from the same environment", async () => {
     const root = await mkdtemp(join(tmpdir(), "child-learning-shared-data-"));
     try {
       await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
-      const legacyDatabase = join(root, "apps/web/.data/learning-worktable.db");
-      const legacyArtifacts = join(root, "apps/web/.data/artifacts");
-      const webService = createLocalService({ projectRoot: root, databasePath: legacyDatabase, artifactsDir: legacyArtifacts, env: {} });
+      const env = { CHILD_LEARNING_DB_PATH: join(root, "family/learning.db"), CHILD_LEARNING_ARTIFACTS_DIR: join(root, "family/artifacts") };
+      const webService = createLocalService({ projectRoot: resolveProjectRoot({}, join(root, "apps/web")), env });
       webService.createStudent({ id: "shared-student", displayName: "Shared Student" });
       webService.close();
-      expect(resolveProjectRoot({}, join(root, "apps/web"))).toBe(root);
-      const claudeService = createLocalService({ projectRoot: root, env: {} });
-      expect(claudeService.demoStatus()).toMatchObject({ dataLocation: "legacy-web", databasePath: legacyDatabase, artifactsDir: legacyArtifacts });
+      const claudeService = createLocalService({ projectRoot: root, env });
+      expect(claudeService.databasePath).toBe(env.CHILD_LEARNING_DB_PATH);
       expect(claudeService.listStudents()).toEqual([expect.objectContaining({ id: "shared-student" })]);
       claudeService.close();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
-  it("uses the workspace data directory for both new web and Claude processes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "child-learning-workspace-data-"));
-    try {
-      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
-      const webRoot = resolveProjectRoot({}, join(root, "apps/web"));
-      const webService = createLocalService({ projectRoot: webRoot, env: {} });
-      webService.createStudent({ id: "workspace-student", displayName: "Workspace Student" });
-      expect(webService.demoStatus()).toMatchObject({ dataLocation: "workspace", databasePath: join(root, ".data/learning-worktable.db"), artifactsDir: join(root, ".data/artifacts") });
-      webService.close();
-
-      const claudeService = createLocalService({ projectRoot: root, env: {} });
-      expect(claudeService.listStudents()).toEqual([expect.objectContaining({ id: "workspace-student" })]);
-      claudeService.close();
-    } finally { await rm(root, { recursive: true, force: true }); }
-  });
-
   it("resolves configured relative data paths from the workspace root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "child-learning-explicit-data-"));
+    const root = await mkdtemp(join(tmpdir(), "child-learning-relative-data-"));
     try {
       const service = createLocalService({ projectRoot: root, databasePath: "family/learning.db", artifactsDir: "family/artifacts", env: {} });
-      expect(service.demoStatus()).toMatchObject({ dataLocation: "explicit", databasePath: join(root, "family/learning.db"), artifactsDir: join(root, "family/artifacts") });
+      expect(service.dataStatus()).toMatchObject({ databasePath: join(root, "family/learning.db"), artifactsDir: join(root, "family/artifacts") });
       service.close();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
-  it("keeps synthetic demo evidence outside the household database", async () => {
-    const root = await mkdtemp(join(tmpdir(), "child-learning-demo-isolation-"));
+  it("accepts the LEARNING_WORKTABLE_DB alias for the same single location", async () => {
+    const root = await mkdtemp(join(tmpdir(), "child-learning-env-alias-"));
     try {
-      const household = createLocalService({ projectRoot: root, env: {} });
-      household.createStudent({ id: "household-student", displayName: "Household Learner" });
-      household.close();
-      const demo = createDemoService({ projectRoot: root, env: {} });
-      expect(demo.databasePath).toBe(join(root, ".data/demo/learning-worktable.db"));
-      await demo.initializeDemo("2026-02-01T00:00:00.000Z");
-      expect(demo.listStudents()).toEqual([expect.objectContaining({ id: "student-demo-ava", dataScope: "demo" })]);
-      demo.close();
-      const reopened = createLocalService({ projectRoot: root, env: {} });
-      expect(reopened.listStudents()).toEqual([expect.objectContaining({ id: "household-student", dataScope: "household" })]);
-      expect(reopened.repo.getStudent("student-demo-ava")).toBeUndefined();
-      reopened.close();
-    } finally { await rm(root, { recursive: true, force: true }); }
-  });
-
-  it("prefers child-learning environment names and preserves legacy fallbacks", async () => {
-    const root = await mkdtemp(join(tmpdir(), "child-learning-env-"));
-    try {
-      const preferred = createLocalService({ projectRoot: root, env: { CHILD_LEARNING_DB_PATH: "preferred/learning.db", CHILD_LEARNING_ARTIFACTS_DIR: "preferred/artifacts", KINDERGARTEN_DB_PATH: "legacy/learning.db", KINDERGARTEN_ARTIFACTS_DIR: "legacy/artifacts" } });
-      expect(preferred.demoStatus()).toMatchObject({ databasePath: join(root, "preferred/learning.db"), artifactsDir: join(root, "preferred/artifacts") });
-      preferred.close();
-      const legacy = createLocalService({ projectRoot: root, env: { KINDERGARTEN_DB_PATH: "legacy/learning.db", KINDERGARTEN_ARTIFACTS_DIR: "legacy/artifacts" } });
-      expect(legacy.demoStatus()).toMatchObject({ databasePath: join(root, "legacy/learning.db"), artifactsDir: join(root, "legacy/artifacts") });
-      legacy.close();
+      const service = createLocalService({ projectRoot: root, env: { LEARNING_WORKTABLE_DB: "family/learning.db", LEARNING_WORKTABLE_ARTIFACTS: "family/artifacts" } });
+      expect(service.dataStatus()).toMatchObject({ databasePath: join(root, "family/learning.db"), artifactsDir: join(root, "family/artifacts") });
+      service.close();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
@@ -130,10 +113,10 @@ describe("local MCP service", () => {
 
   it("initializes idempotently and protects child activity output", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      const first = service.demoStatus();
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      const second = service.demoStatus();
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      const first = service.dataStatus();
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      const second = service.dataStatus();
       expect(second.students).toBe(first.students);
       expect(second.activities).toBe(first.activities);
       const child = service.getActivity("activity-addition-01");
@@ -147,29 +130,29 @@ describe("local MCP service", () => {
 
   it("validates proposed specs, scores submissions, and appends progress", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      const generated = service.generateActivity({ subject: "math", seed: 77, studentId: "student-demo-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
-      const subtraction = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 78, studentId: "student-demo-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
-      const science = service.generateActivity({ generator: "science.observe-and-describe", seed: 79, studentId: "student-demo-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      const generated = service.generateActivity({ subject: "math", seed: 77, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
+      const subtraction = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 78, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
+      const science = service.generateActivity({ generator: "science.observe-and-describe", seed: 79, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
       expect(subtraction.conceptId).toBe("math.subtraction-within-10");
       expect(science.scoring.method).toBe("observation");
       await service.validateAndStoreActivity(generated);
-      const result = await service.recordDigitalSubmission({ id: "mcp-submission-1", activityId: generated.id, studentId: "student-demo-ava", responses: generated.items.map((item) => ({ itemId: item.id, value: generated.answerSpecs[item.id]?.type === "integer" ? generated.answerSpecs[item.id].expected : "wrong", capturedAt: "2026-02-01T00:00:00.000Z" })) });
+      const result = await service.recordDigitalSubmission({ id: "mcp-submission-1", activityId: generated.id, studentId: "student-fixture-ava", responses: generated.items.map((item) => ({ itemId: item.id, value: generated.answerSpecs[item.id]?.type === "integer" ? generated.answerSpecs[item.id].expected : "wrong", capturedAt: "2026-02-01T00:00:00.000Z" })) });
       expect(result.evaluation).toHaveProperty("score", 1);
-      expect(service.getProgress("student-demo-ava", generated.conceptId).history.length).toBeGreaterThan(0);
+      expect(service.getProgress("student-fixture-ava", generated.conceptId).history.length).toBeGreaterThan(0);
       await expect(service.validateAndStoreActivity({ ...generated, answerSpecs: { [generated.items[0]!.id]: { type: "integer", expected: 999 } } })).rejects.toThrow(/answerSpecs|answer does not match/);
     });
   });
 
   it("tracks current work lifecycle and exact worksheet retries", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
       const activity = service.getActivity("activity-addition-01", true) as { id: string; items: Array<{ id: string }>; answerSpecs: Record<string, { type: string; expected: unknown }> };
-      const retry = await service.recordDigitalSubmission({ id: "retry-submission", activityId: activity.id, studentId: "student-demo-ava", retryOfSubmissionId: "submission-demo-addition-1", responses: activity.items.map((item) => ({ itemId: item.id, value: activity.answerSpecs[item.id]?.expected, capturedAt: "2026-02-02T00:00:00.000Z" })) });
-      expect((retry.submission as { retryOfSubmissionId?: string }).retryOfSubmissionId).toBe("submission-demo-addition-1");
+      const retry = await service.recordDigitalSubmission({ id: "retry-submission", activityId: activity.id, studentId: "student-fixture-ava", retryOfSubmissionId: "submission-fixture-addition-1", responses: activity.items.map((item) => ({ itemId: item.id, value: activity.answerSpecs[item.id]?.expected, capturedAt: "2026-02-02T00:00:00.000Z" })) });
+      expect((retry.submission as { retryOfSubmissionId?: string }).retryOfSubmissionId).toBe("submission-fixture-addition-1");
       const row = service.db.prepare("SELECT attempt_number,retry_of_submission_id FROM submissions WHERE id = ?").get("retry-submission") as { attempt_number: number; retry_of_submission_id: string };
-      expect(row).toEqual({ attempt_number: 2, retry_of_submission_id: "submission-demo-addition-1" });
-      const work = service.projectLearnerWork("student-demo-ava") as { current: Array<{ activity: { id: string }; status: string }>; history: Array<{ activity: { id: string }; status: string; attemptCount: number }> };
+      expect(row).toEqual({ attempt_number: 2, retry_of_submission_id: "submission-fixture-addition-1" });
+      const work = service.projectLearnerWork("student-fixture-ava") as { current: Array<{ activity: { id: string }; status: string }>; history: Array<{ activity: { id: string }; status: string; attemptCount: number }> };
       expect(work.current.some((entry) => entry.activity.id === activity.id)).toBe(false);
       expect(work.history.find((entry) => entry.activity.id === activity.id)).toMatchObject({ status: "complete", attemptCount: 2 });
       const retryArtifact = (retry.artifacts as Array<{ id: string }>)[0]!.id;
@@ -179,25 +162,25 @@ describe("local MCP service", () => {
 
   it("rejects submissions for activities outside the learner's current shelf", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      await expect(service.recordDigitalSubmission({ id: "locked-submission", activityId: "activity-subtraction-01", studentId: "student-demo-ava", responses: [] })).rejects.toThrow(/not currently available/);
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      await expect(service.recordDigitalSubmission({ id: "locked-submission", activityId: "activity-subtraction-01", studentId: "student-fixture-ava", responses: [] })).rejects.toThrow(/not currently available/);
       expect(service.db.prepare("SELECT 1 FROM submissions WHERE id = ?").get("locked-submission")).toBeUndefined();
     });
   });
 
   it("keeps assisted evaluation reviewable and overrides append-only", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      await service.recordDigitalSubmission({ id: "mcp-submission-upload", activityId: "activity-addition-01", studentId: "student-demo-ava", responses: [] });
-      const beforeProposal = service.getProgress("student-demo-ava", "math.addition-within-10");
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      await service.recordDigitalSubmission({ id: "mcp-submission-upload", activityId: "activity-addition-01", studentId: "student-fixture-ava", responses: [] });
+      const beforeProposal = service.getProgress("student-fixture-ava", "math.addition-within-10");
       const proposed = await service.proposeUploadedWorkEvaluation({ submissionId: "mcp-submission-upload", evidence: ["photo: visible numeral"], confidence: 0.72 });
       expect(proposed.requiresHumanReview).toBe(true);
       const proposalId = (proposed.evaluation as { id: string }).id;
       const originalRow = service.db.prepare("SELECT evaluation_json FROM evaluations WHERE id = ?").get(proposalId);
-      expect(service.getProgress("student-demo-ava", "math.addition-within-10").history.length).toBe(beforeProposal.history.length);
+      expect(service.getProgress("student-fixture-ava", "math.addition-within-10").history.length).toBe(beforeProposal.history.length);
       const confirmed = await service.confirmEvaluation({ evaluationId: proposalId, reviewerId: "adult-1", score: 0.8, rationale: "Adult verified eight of ten responses." });
       expect(confirmed.originalEvaluationId).toBe(proposalId);
-      expect(service.getProgress("student-demo-ava", "math.addition-within-10").history.length).toBe(beforeProposal.history.length + 1);
+      expect(service.getProgress("student-fixture-ava", "math.addition-within-10").history.length).toBe(beforeProposal.history.length + 1);
       expect(confirmed).toHaveProperty("artifact");
       const lineage = await service.getArtifactLineage((confirmed.artifact as { id: string }).id);
       expect((lineage.parents as Array<{ artifactId?: string; childArtifactId?: string }>).length).toBeGreaterThan(0);
@@ -205,26 +188,26 @@ describe("local MCP service", () => {
       const originalAfter = service.db.prepare("SELECT evaluation_json FROM evaluations WHERE id = ?").get(proposalId);
       expect(originalAfter).toEqual(originalRow);
 
-      const beforeOverrideHistory = service.getProgress("student-demo-ava", "math.addition-within-10").history as Array<{ event_type: string }>;
-      const stateBeforeOverride = (service.getProgress("student-demo-ava", "math.addition-within-10").states as Array<{ step: number; status: string }>)[0]!;
-      const override = service.applyOverride({ id: "override-1", studentId: "student-demo-ava", conceptId: "math.addition-within-10", targetStep: 2, reason: "Teacher reviewed work", authorId: "adult-1" });
-      expect((service.getProgress("student-demo-ava", "math.addition-within-10").states as Array<{ step: number }>)[0]!.step).toBe(2);
-      const reversed = service.reverseOverride({ id: "override-2", studentId: "student-demo-ava", conceptId: "math.addition-within-10", targetId: String(override.id), reason: "Correction", authorId: "adult-1" });
+      const beforeOverrideHistory = service.getProgress("student-fixture-ava", "math.addition-within-10").history as Array<{ event_type: string }>;
+      const stateBeforeOverride = (service.getProgress("student-fixture-ava", "math.addition-within-10").states as Array<{ step: number; status: string }>)[0]!;
+      const override = service.applyOverride({ id: "override-1", studentId: "student-fixture-ava", conceptId: "math.addition-within-10", targetStep: 2, reason: "Teacher reviewed work", authorId: "adult-1" });
+      expect((service.getProgress("student-fixture-ava", "math.addition-within-10").states as Array<{ step: number }>)[0]!.step).toBe(2);
+      const reversed = service.reverseOverride({ id: "override-2", studentId: "student-fixture-ava", conceptId: "math.addition-within-10", targetId: String(override.id), reason: "Correction", authorId: "adult-1" });
       expect((reversed.newState as { step: number }).step).toBe(stateBeforeOverride.step);
-      expect((service.getProgress("student-demo-ava", "math.addition-within-10").states as Array<{ step: number }>)[0]!.step).toBe(stateBeforeOverride.step);
-      const history = service.getProgress("student-demo-ava", "math.addition-within-10").history as Array<{ event_type: string }>;
+      expect((service.getProgress("student-fixture-ava", "math.addition-within-10").states as Array<{ step: number }>)[0]!.step).toBe(stateBeforeOverride.step);
+      const history = service.getProgress("student-fixture-ava", "math.addition-within-10").history as Array<{ event_type: string }>;
       expect(history.filter((entry) => entry.event_type === "human-override").length).toBe(beforeOverrideHistory.filter((entry) => entry.event_type === "human-override").length + 2);
     });
   });
 
   it("rejects assisted evaluation without changing graded state", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
-      await service.recordDigitalSubmission({ id: "mcp-reject-submission", activityId: "activity-addition-01", studentId: "student-demo-ava", responses: [] });
-      const before = service.getProgress("student-demo-ava", "math.addition-within-10");
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      await service.recordDigitalSubmission({ id: "mcp-reject-submission", activityId: "activity-addition-01", studentId: "student-fixture-ava", responses: [] });
+      const before = service.getProgress("student-fixture-ava", "math.addition-within-10");
       const proposed = await service.proposeUploadedWorkEvaluation({ submissionId: "mcp-reject-submission", evidence: ["photo: unclear"], confidence: 0.2 });
       const rejected = await service.rejectEvaluation({ evaluationId: (proposed.evaluation as { id: string }).id, reviewerId: "adult-2", reason: "Image is not legible." });
-      const after = service.getProgress("student-demo-ava", "math.addition-within-10");
+      const after = service.getProgress("student-fixture-ava", "math.addition-within-10");
       expect(after.states).toEqual(before.states);
       expect(after.history.length).toBe(before.history.length + 1);
       expect(rejected.gradedStateChanged).toBe(false);
@@ -235,9 +218,9 @@ describe("local MCP service", () => {
 
   it("generates historical reports without future evidence or roadmap reconciliation", async () => {
     await withService(async (service) => {
-      await service.initializeDemo("2026-02-01T00:00:00.000Z");
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
       const before = Number((service.db.prepare("SELECT COUNT(*) AS count FROM roadmap_reconciliation_runs").get() as { count: number }).count);
-      const result = await service.generateProgressReport("student-demo-ava", { kind: "current", asOf: "2026-01-15T00:00:00.000Z", timeZone: "UTC" });
+      const result = await service.generateProgressReport("student-fixture-ava", { kind: "current", asOf: "2026-01-15T00:00:00.000Z", timeZone: "UTC" });
       const report = result.report as { asOf: string; conceptStates: unknown[]; worksheetSummaries: unknown[] };
       expect(report.asOf).toBe("2026-01-15T00:00:00.000Z");
       expect(report.conceptStates).toHaveLength(0);

@@ -20,7 +20,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/adult/:path*",
-    "/demo/adult/:path*",
     "/setup",
     "/print/:path*",
     "/api/activities/generate",

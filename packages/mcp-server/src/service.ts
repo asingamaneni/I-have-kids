@@ -58,7 +58,6 @@ import {
   scoreSubmission,
 } from "@child-learning/domain";
 import { closeDatabase, LearningRepository, migrateDatabase, openDatabase, type SqliteDatabase } from "@child-learning/database";
-import { seedDemo } from "@child-learning/demo";
 import { ArtifactStore, type StoredArtifact } from "@child-learning/storage";
 import { reportWindow } from "./report-periods.js";
 
@@ -68,7 +67,6 @@ export interface LocalServiceOptions {
   artifactsDir?: string;
   clock?: () => string;
   env?: NodeJS.ProcessEnv;
-  dataScope?: Student["dataScope"];
 }
 
 export interface RecommendationRequestOptions {
@@ -85,12 +83,11 @@ export interface ReportGenerationOptions {
   asOf?: string;
 }
 
-export interface DemoStatus {
+export interface DataStatus {
   initialized: boolean;
   projectRoot: string;
   databasePath: string;
   artifactsDir: string;
-  dataLocation: "explicit" | "workspace" | "legacy-web" | "demo";
   students: number;
   activities: number;
   submissions: number;
@@ -102,14 +99,12 @@ export interface LocalService {
   readonly root: string;
   readonly databasePath: string;
   readonly artifactsDir: string;
-  readonly dataScope: Student["dataScope"];
   readonly db: SqliteDatabase;
   readonly repo: LearningRepository;
   readonly store: ArtifactStore;
   readonly registry: CurriculumRegistry;
   close(): void;
-  initializeDemo(now?: string): Promise<unknown>;
-  demoStatus(): DemoStatus;
+  dataStatus(): DataStatus;
   listStudents(): Student[];
   createStudent(input: { id?: string; displayName: string; birthDate?: string; schoolPlacement?: string; preferredLanguage?: string; accommodations?: string[]; interests?: string[]; learningGoals?: string[]; selectedSubjects?: string[]; reportedCapabilities?: Student["reportedCapabilities"]; baselineNotes?: string; baselineStatus?: Student["baselineStatus"] }): Student;
   createLearnerWithIntake(input: StudentCreateRequest): Promise<Record<string, unknown>>;
@@ -341,18 +336,18 @@ export function planStartingDiagnostics(registry: CurriculumRegistry, intake: Le
   return [...chosen.values()].map((target) => ({ subject: target.subject, conceptId: target.conceptId, stage: target.stage, ...(target.claim ? { claim: target.claim } : {}) }));
 }
 
+export function requireDataPath(value: string | undefined, variableName: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new Error(`${variableName} is not set. The learning data location has no default: set ${variableName} (and its artifacts counterpart) so every process reads and writes the same store.`);
+  return trimmed;
+}
+
 export function createLocalService(options: LocalServiceOptions = {}): LocalService {
   const env = options.env ?? process.env;
   const root = resolve(options.projectRoot ?? resolveProjectRoot(env));
-  const dataScope = options.dataScope ?? "household";
-  const explicitDatabasePath = options.databasePath ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_DB_PATH : env.CHILD_LEARNING_DB_PATH) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_DB_PATH ?? env.LEARNING_WORKTABLE_DB);
-  const explicitArtifactsDir = options.artifactsDir ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_ARTIFACTS_DIR : env.CHILD_LEARNING_ARTIFACTS_DIR) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS);
-  const legacyDatabasePath = join(root, "apps/web/.data/learning-worktable.db");
-  const useLegacyWebData = dataScope !== "demo" && !explicitDatabasePath && existsSync(legacyDatabasePath);
   const resolveDataPath = (value: string): string => isAbsolute(value) ? resolve(value) : resolve(root, value);
-  const databasePath = resolveDataPath(explicitDatabasePath ?? (dataScope === "demo" ? ".data/demo/learning-worktable.db" : useLegacyWebData ? "apps/web/.data/learning-worktable.db" : ".data/learning-worktable.db"));
-  const artifactsDir = resolveDataPath(explicitArtifactsDir ?? (dataScope === "demo" ? ".data/demo/artifacts" : useLegacyWebData ? "apps/web/.data/artifacts" : ".data/artifacts"));
-  const dataLocation: DemoStatus["dataLocation"] = dataScope === "demo" && !explicitDatabasePath && !explicitArtifactsDir ? "demo" : explicitDatabasePath || explicitArtifactsDir ? "explicit" : useLegacyWebData ? "legacy-web" : "workspace";
+  const databasePath = resolveDataPath(requireDataPath(options.databasePath ?? env.CHILD_LEARNING_DB_PATH ?? env.LEARNING_WORKTABLE_DB, "CHILD_LEARNING_DB_PATH"));
+  const artifactsDir = resolveDataPath(requireDataPath(options.artifactsDir ?? env.CHILD_LEARNING_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS, "CHILD_LEARNING_ARTIFACTS_DIR"));
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = openDatabase({ filename: databasePath });
   migrateDatabase(db);
@@ -397,22 +392,18 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     if (pendingDiagnostics === 0) repo.saveStudent({ id: learner.id, displayName: learner.displayName, ...(learner.birthDate ? { birthDate: learner.birthDate } : {}), grade: learner.gradeBand, metadata: { preferredLanguage: learner.preferredLanguage, accommodations: learner.accommodations, interests: learner.interests, learningGoals: learner.learningGoals, selectedSubjects: learner.selectedSubjects, reportedCapabilities: learner.reportedCapabilities, baselineNotes: learner.baselineNotes, baselineStatus: "established" } });
   };
   const service: LocalService = {
-    root, databasePath, artifactsDir, dataScope, db, repo, store,
+    root, databasePath, artifactsDir, db, repo, store,
     get registry() { return registry; },
     close: () => closeDatabase(db),
-    async initializeDemo(now) {
-      if (dataScope !== "demo") throw new Error("Demo initialization requires the isolated demo service.");
-      return seedDemo({ databasePath, artifactsDir, now: now ?? clock() });
-    },
-    demoStatus() {
+    dataStatus() {
       const counts = dbCounts(db);
-      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, dataLocation, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
+      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
     },
-    listStudents: () => repo.listStudents(dataScope === "demo" ? ["demo", "legacy-mixed"] : ["household", "legacy-mixed"]).map(rowStudent),
+    listStudents: () => repo.listStudents(["household"]).map(rowStudent),
     createStudent(input) {
       const now = clock();
-      const generatedId = dataScope === "demo" ? `synthetic-demo-v2-student-${randomUUID()}` : `student-${randomUUID()}`;
-      const student = StudentSchema.parse({ id: input.id ?? generatedId, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "awaiting-intake", dataScope, createdAt: now, updatedAt: now });
+      const generatedId = `student-${randomUUID()}`;
+      const student = StudentSchema.parse({ id: input.id ?? generatedId, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "awaiting-intake", dataScope: "household", createdAt: now, updatedAt: now });
       const row = repo.saveStudent({ id: student.id, displayName: student.displayName, ...(student.birthDate ? { birthDate: student.birthDate } : {}), grade: student.gradeBand, dataScope: student.dataScope, ...(student.sourceDatasetId ? { sourceDatasetId: student.sourceDatasetId } : {}), metadata: { preferredLanguage: student.preferredLanguage, accommodations: student.accommodations, interests: student.interests, learningGoals: student.learningGoals, selectedSubjects: student.selectedSubjects, reportedCapabilities: student.reportedCapabilities, baselineNotes: student.baselineNotes, baselineStatus: student.baselineStatus } });
       return rowStudent(row);
     },
@@ -428,7 +419,6 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       const row = repo.getStudent(studentId);
       if (!row) throw new Error(`student not found: ${studentId}`);
       const student = rowStudent(row);
-      if (student.dataScope !== dataScope) throw new Error("Learner data scope does not match this service.");
       const targets = planStartingDiagnostics(registry, intake, student.selectedSubjects);
       if (targets.length === 0) throw new Error("Choose an observed ability or an explicit subject entry diagnostic before creating work.");
       const observedCapabilities = [...new Set([...student.reportedCapabilities, ...intake.observedCapabilities, ...intake.questionnaireAnchors.flatMap((anchor) => anchor.capabilityId ? [anchor.capabilityId] : [])])];
@@ -1048,9 +1038,6 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
   return service;
 }
 
-export function createDemoService(options: Omit<LocalServiceOptions, "dataScope"> = {}): LocalService {
-  return createLocalService({ ...options, dataScope: "demo" });
-}
 
 function boundedInt(value: number, min: number, max: number): number { if (!Number.isInteger(value) || value < min || value > max) throw new Error(`value must be an integer between ${min} and ${max}`); return value; }
 function esc(value: unknown): string { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[char] ?? char); }

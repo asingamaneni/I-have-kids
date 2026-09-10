@@ -1,3 +1,7 @@
+// Test-only fixture: builds a fully worked learner history (activities, submissions,
+// evaluations, progress events, reports) so service tests have realistic evidence to
+// assert against. This is NOT shipped: the product has no demo mode, and nothing
+// outside packages/mcp-server/tests may import it.
 import { resolve } from "node:path";
 import { closeDatabase, LearningRepository, migrateDatabase, openDatabase } from "@child-learning/database";
 import { deriveConceptAvailability, generateAdditionWithinTen, generateEnglishBeginningSounds, generateSubtractionWithinTen, generateEqualGroups, generateFairSharing, generateHandwritingWriting, generateReadingForDetail, generateReasoning, generateScienceObservation, projectProgression, projectStudentConceptState, progressEventsFromEvaluation, rankRecommendations, DEFAULT_PROGRESSION_POLICY, scoreSubmission } from "@child-learning/domain";
@@ -11,7 +15,7 @@ export interface DemoSeedResult { studentId: string; activityIds: string[]; obse
 const DEMO_DATASET_ID = "child-learning-demo-v2";
 const DEMO_DATASET_VERSION = "2";
 const IDS = {
-  student: "student-demo-ava", mathCurriculum: "curriculum-addition-within-10", englishCurriculum: "curriculum-letter-sounds",
+  student: "student-fixture-ava", mathCurriculum: "curriculum-addition-within-10", englishCurriculum: "curriculum-letter-sounds",
   mathActivities: ["activity-addition-01", "activity-addition-02", "activity-addition-03", "activity-addition-04"], nextMathActivity: "activity-addition-next",
   englishActivity: "activity-english-letter-sounds", concept: "math.addition-within-10", englishConcept: "english.beginning-sounds"
 
@@ -42,7 +46,7 @@ function initialState(studentId: string, conceptId: string, now: string): Studen
   return { studentId, conceptId, step: 0, status: "new", recentScores: [], updatedAt: now };
 }
 
-export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedResult> {
+export async function seedFixture(options: DemoSeedOptions = {}): Promise<DemoSeedResult> {
   const now = options.now ?? "2026-01-15T12:00:00.000Z";
   const databasePath = options.databasePath ?? resolve(process.cwd(), ".data/demo/learning-worktable.db");
   const artifactsDir = options.artifactsDir ?? resolve(process.cwd(), ".data/demo/artifacts");
@@ -58,7 +62,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       return { studentId: manifest.studentId, activityIds: manifest.activityIds, observationScores: manifest.observationScores, finalStep: manifest.finalStep, finalDecision: manifest.finalDecision, artifacts };
     }
     if (repo.getStudent(IDS.student)) throw new Error("The isolated demo store contains an unmanifested demo learner; refusing to overwrite it.");
-    repo.saveStudent({ id: IDS.student, displayName: "Ava Demo", grade: "School-age, mixed level", dataScope: "demo", sourceDatasetId: DEMO_DATASET_ID, metadata: { demo: true, baselineStatus: "established", selectedSubjects: ["math", "english", "reasoning", "science"] } });
+    repo.saveStudent({ id: IDS.student, displayName: "Fixture Learner", grade: "School-age, mixed level", dataScope: "household", sourceDatasetId: DEMO_DATASET_ID, metadata: { baselineStatus: "established", selectedSubjects: ["math", "english", "reasoning", "science"] } });
     repo.saveCurriculumMetadata({ id: IDS.mathCurriculum, subject: "math", conceptId: IDS.concept, title: "Addition within 10", metadata: { demo: true } });
     repo.saveCurriculumMetadata({ id: IDS.englishCurriculum, subject: "english", conceptId: IDS.englishConcept, title: "Beginning letter sounds", metadata: { demo: true } });
     const artifacts: StoredArtifact[] = [];
@@ -109,7 +113,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
     let mathState = initialState(IDS.student, IDS.concept, now);
     let finalDecision = "no-change";
     for (const [index, spec] of additionActivities.entries()) {
-      const submission = makeSubmission(spec, `submission-demo-addition-${index + 1}`, index === 0 ? 7 : 9, now);
+      const submission = makeSubmission(spec, `submission-fixture-addition-${index + 1}`, index === 0 ? 7 : 9, now);
       const evaluation = scoreSubmission(spec, submission, { evaluationId: `evaluation-demo-addition-${index + 1}`, now });
       const specArtifactId = (db.prepare("SELECT artifact_id FROM activities WHERE id = ?").get(spec.id) as { artifact_id: string }).artifact_id;
       const specArtifact = artifacts.find((artifact) => artifact.id === specArtifactId) ?? await store.findById(specArtifactId);
@@ -135,7 +139,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
       scores.push(evaluation.score);
     }
 
-    const englishSubmission = makeSubmission(englishActivity, "submission-demo-english", englishActivity.items.length, now);
+    const englishSubmission = makeSubmission(englishActivity, "submission-fixture-english", englishActivity.items.length, now);
     const englishEvaluation = scoreSubmission(englishActivity, englishSubmission, { evaluationId: "evaluation-demo-english", now });
     const englishSubmissionArtifact = await saveArtifact(englishSubmission, { source: "demo-submission", kind: "submission", submissionId: englishSubmission.id });
     await store.addLineageEdge(englishArtifact.id, englishSubmissionArtifact.id, "submitted-from");
@@ -160,7 +164,7 @@ export async function seedDemo(options: DemoSeedOptions = {}): Promise<DemoSeedR
 
     const learningPath = deriveConceptAvailability({ states: [mathState, englishState], events: [...mathEvents, englishEvent], now });
     const worksheetSummaries: ReportSnapshot["worksheetSummaries"] = [
-      ...additionActivities.map((activity, index) => ({ submissionId: `submission-demo-addition-${index + 1}`, activityId: activity.id, title: activity.title, subject: activity.subject, conceptId: activity.conceptId, submittedAt: now, evaluationId: `evaluation-demo-addition-${index + 1}`, score: scores[index]!, status: "final" as const, correctItems: Math.round(scores[index]! * activity.items.length), totalItems: activity.items.length })),
+      ...additionActivities.map((activity, index) => ({ submissionId: `submission-fixture-addition-${index + 1}`, activityId: activity.id, title: activity.title, subject: activity.subject, conceptId: activity.conceptId, submittedAt: now, evaluationId: `evaluation-demo-addition-${index + 1}`, score: scores[index]!, status: "final" as const, correctItems: Math.round(scores[index]! * activity.items.length), totalItems: activity.items.length })),
       { submissionId: englishSubmission.id, activityId: englishActivity.id, title: englishActivity.title, subject: englishActivity.subject, conceptId: englishActivity.conceptId, submittedAt: now, evaluationId: englishEvaluation.id, score: englishEvaluation.score, status: englishEvaluation.status, correctItems: englishEvaluation.items.filter((item) => item.score === 1).length, totalItems: englishActivity.items.length },
     ];
     if (!db.prepare("SELECT 1 FROM report_snapshots WHERE id = ?").get("report-demo-1")) {

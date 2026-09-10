@@ -71,37 +71,27 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open <http://127.0.0.1:3000> and choose **Set up a learner**. Creating a profile does **not** seed or assign a worksheet. An adult first selects structured abilities they have observed, completes the per-subject starting questionnaire, or explicitly chooses that subject's entry check. Only then does the app create diagnostics near the reported level. Parent input selects what to assess; it remains a hypothesis and never counts as mastery until confirmed by the child's work. Free-text notes remain context only. No demo seed or account is required.
-
-To load the reproducible Ava demo, use **Explore the demo** on the landing page or run:
-
-```sh
-pnpm seed
-pnpm dev
-```
-
-Synthetic learner evidence is physically isolated from household records in `.data/demo/learning-worktable.db` and `.data/demo/artifacts/`. Re-running the seed reuses its immutable dataset manifest and does not reset later demo attempts. Demo screens carry a visible **Demo data** notice, and normal mutation APIs never fall back to a demo learner.
-
-Demo routes use a separate route family:
-
-- Child current work: <http://127.0.0.1:3000/demo/child/student-demo-ava>
-- Child learning map: <http://127.0.0.1:3000/demo/child/student-demo-ava/roadmap>
-- Child history: <http://127.0.0.1:3000/demo/child/student-demo-ava/history>
-- Adult dashboard: <http://127.0.0.1:3000/demo/adult/student-demo-ava>
-- Adult full subject roadmap: <http://127.0.0.1:3000/demo/adult/student-demo-ava/path>
+Open <http://127.0.0.1:3000> and choose **Set up a learner**. Creating a profile does **not** seed or assign a worksheet. An adult first selects structured abilities they have observed, completes the per-subject starting questionnaire, or explicitly chooses that subject's entry check. Only then does the app create diagnostics near the reported level. Parent input selects what to assess; it remains a hypothesis and never counts as mastery until confirmed by the child's work. Free-text notes remain context only.
 
 ### Local data and configuration
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `CHILD_LEARNING_PROJECT_ROOT` | Preferred explicit project root for the plugin and MCP bundle | workspace root |
-| `CHILD_LEARNING_DB_PATH` or `LEARNING_WORKTABLE_DB` | SQLite database path | `.data/learning-worktable.db` |
-| `CHILD_LEARNING_ARTIFACTS_DIR` or `LEARNING_WORKTABLE_ARTIFACTS` | Immutable household activity, curriculum, roadmap, submission, evaluation, and report bytes | `.data/artifacts/` |
-| `CHILD_LEARNING_DEMO_DB_PATH` | Optional isolated demo SQLite path | `.data/demo/learning-worktable.db` |
-| `CHILD_LEARNING_DEMO_ARTIFACTS_DIR` | Optional isolated demo artifact directory | `.data/demo/artifacts/` |
+| `CHILD_LEARNING_DB_PATH` or `LEARNING_WORKTABLE_DB` | SQLite database path | **required — no default** |
+| `CHILD_LEARNING_ARTIFACTS_DIR` or `LEARNING_WORKTABLE_ARTIFACTS` | Immutable activity, curriculum, roadmap, submission, evaluation, and report bytes | **required — no default** |
 | `LEARNING_ADULT_PIN` | Optional local adult-area PIN | unset |
 
-The preferred `CHILD_LEARNING_*` names take precedence. Existing `KINDERGARTEN_PROJECT_ROOT`, `KINDERGARTEN_DB_PATH`, and `KINDERGARTEN_ARTIFACTS_DIR` settings remain supported as compatibility fallbacks. The web app and the Claude Code plugin resolve relative paths from the pnpm workspace root, not from the process working directory. A child created in the browser is therefore available to Claude Code from the same checkout. Existing checkouts that already contain `apps/web/.data/learning-worktable.db` continue using that legacy database and its artifact directory automatically, unless explicit paths are configured.
+The database and artifact locations have **no defaults**. Every process — the web app and the Claude Code plugin alike — reads them from the environment, and startup fails with an explicit error when they are unset. There is no workspace fallback and no automatic adoption of a stray `apps/web/.data/learning-worktable.db`, because those implicit paths let the browser and Claude Code drift onto different databases while both appeared to work.
+
+Set both variables once, in a location every process inherits, and point them at a single store outside the checkout:
+
+```sh
+export CHILD_LEARNING_DB_PATH="$HOME/.learning-worktable/family.db"
+export CHILD_LEARNING_ARTIFACTS_DIR="$HOME/.learning-worktable/artifacts"
+```
+
+For `pnpm dev`, an `apps/web/.env.local` carrying the same two values works as well. Relative paths resolve from the pnpm workspace root, not the process working directory. A child created in the browser is then visible to Claude Code, because both are reading the same file. `CHILD_LEARNING_PROJECT_ROOT`, `KINDERGARTEN_PROJECT_ROOT`, `KINDERGARTEN_DB_PATH`, and `KINDERGARTEN_ARTIFACTS_DIR` remain supported as compatibility fallbacks.
 
 Both data locations are gitignored. To keep separate households or test environments isolated, start the app and Claude Code with the same explicit paths:
 
@@ -127,7 +117,7 @@ Set a PIN before starting the app:
 LEARNING_ADULT_PIN=2468 pnpm dev
 ```
 
-When configured, setup, adult pages, reports, answer sheets, curriculum review, activity generation, reviews, and overrides require the local PIN. Protected API requests without the access cookie return a JSON `401` response rather than redirecting and losing a pending mutation. Child pages and child-safe activity and roadmap reads remain available. This is a local demo boundary, not production identity management.
+When configured, setup, adult pages, reports, answer sheets, curriculum review, activity generation, reviews, and overrides require the local PIN. Protected API requests without the access cookie return a JSON `401` response rather than redirecting and losing a pending mutation. Child pages and child-safe activity and roadmap reads remain available. This is a local convenience boundary, not production identity management.
 
 ## Typical local workflow
 
@@ -157,23 +147,6 @@ Curriculum revisions are immutable and content-addressed. Claude can propose ori
 The subject-pack structure follows one reusable reference model for any subject: ordered micro-skills grouped into strands and phases, several diagnostic entry anchors, explicit prerequisite/readiness links, consolidation and review points, and an open frontier for later immutable revisions. The supplied Kumon Math and English learning tables informed the breadth and continuity of this architecture. Their proprietary level system, tables, worksheet wording, sample pages, illustrations, branding, and exact sequence are not copied; Math, Language Arts, and every future subject use original concept IDs, descriptions, examples, guides, activities, and layouts.
 
 The child worktable shows only actionable or waiting work; completed attempts live in **My history**. The focused learning map collapses completed history and shows the current focus plus five next mainline steps, while **See the whole path** opens the full child-safe subject progression. The adult roadmap is always the complete approved subject map in a long top-to-bottom view, with evidence, branches, placement, and node-level controls. Every worksheet, retry submission, evaluation, report, guide, and roadmap revision stays linked to stable immutable IDs.
-
-## Demonstration scenario
-
-```sh
-pnpm demo
-```
-
-The idempotent demo creates one student and exercises the complete evidence loop. Its comparable Addition within 10 observations are:
-
-| Activity | Result | Policy outcome |
-|---|---:|---|
-| A1 | 70% | Maintain and target the weak area |
-| A2 | 90% | Maintain; only one qualifying result |
-| A3 | 90% | Maintain; only two qualifying results |
-| A4 | 90% | Advance exactly one controlled difficulty step |
-
-It also stores an English activity/evaluation, recommendation evidence, report snapshot, and audited human override. Generated, submitted, evaluated, and reported artifacts remain linked by hash and lineage.
 
 ## Build and use the Omniplug plugin
 
@@ -378,7 +351,6 @@ The Claude build emits all 11 canonical entry points as manual skills. Arguments
 | Project-scoped entry skill | Arguments | What it does |
 |---|---|---|
 | `/child-learning-start` | `[student-id-or-name]` | Start or resume a learner session, load real local state, and suggest the next action without changing progress. |
-| `/child-learning-demo` | `[student-id]` | Walk through the canonical learning loop using actual local artifacts and results. |
 | `/child-learning-create-practice` | `[subject] [concept] [difficulty] [question-count]` | Create and persist validated practice at the learner's currently available stage; question count defaults to 20. |
 | `/child-learning-create-picture-activity` | `[subject] [concept] [activity-type] [difficulty]` | Create an original validated printable activity whose pictures carry instructional meaning. |
 | `/child-learning-check-work` | `[activity-id] [submission-id]` | Evaluate stored work against its exact activity; deterministic checks remain in application code and uncertainty goes to adult review. |
@@ -392,12 +364,11 @@ The Claude build emits all 11 canonical entry points as manual skills. Arguments
 A few additional examples:
 
 ```text
-/child-learning-demo student-demo-ava
 /child-learning-add-concept social-studies local-history "Build a simple timeline" "social-studies.communities"
 /child-learning-verify all
 ```
 
-For `--plugin-dir`, prefix these names with `child-learning:`—for example, `/child-learning:child-learning-demo student-demo-ava`. Run `/help` in Claude Code for the authoritative names exposed by the current installation.
+For `--plugin-dir`, prefix these names with `child-learning:`—for example, `/child-learning:child-learning-track-progress`. Run `/help` in Claude Code for the authoritative names exposed by the current installation.
 
 The entry skills delegate to 14 reusable capabilities. These are implementation building blocks that Claude may select or one entry skill may call; parents normally begin with the `/child-learning-*` entries above.
 
@@ -440,7 +411,7 @@ pnpm plugin:validate  # validate the canonical Omniplug source for Claude
 pnpm verify           # verify:fast plus Playwright browser/PDF tests
 ```
 
-The test corpus covers the tracked branding allowlist; contracts and child privacy; intake without implicit worksheets; diagnostic placement; demo/household isolation; lifecycle and retry lineage; focused/full roadmaps; curriculum activation; generated-answer consistency; 20-item defaults; adaptive print pagination; report cutoffs and calendar periods; SQLite immutability; artifact hashes; and desktop/mobile browser workflows.
+The test corpus covers the tracked branding allowlist; contracts and child privacy; intake without implicit worksheets; diagnostic placement; single-store data resolution; lifecycle and retry lineage; focused/full roadmaps; curriculum activation; generated-answer consistency; 20-item defaults; adaptive print pagination; report cutoffs and calendar periods; SQLite immutability; artifact hashes; and desktop/mobile browser workflows.
 
 Before the full verification suite, install its browser once:
 
@@ -452,7 +423,8 @@ pnpm exec playwright install chromium
 
 - **Port 3000 is busy:** run `pnpm --filter @child-learning/web exec next dev --webpack --port 3100` and open the printed URL.
 - **SQLite native module did not build:** confirm Node 22+, run `pnpm install` again, and verify pnpm honored the repository's approved `better-sqlite3` build script.
-- **The demo profile is missing:** use **Explore the demo** or run `pnpm seed`. Demo data is written only to `.data/demo`; normal reads and household storage are never seeded or modified.
+- **Startup fails with `CHILD_LEARNING_DB_PATH is not set`:** the data location has no default. Export it and `CHILD_LEARNING_ARTIFACTS_DIR` (see *Local data and configuration*) so every process shares one store.
+- **The browser and Claude Code show different children:** they are reading different databases. Compare the `databasePath` each reports and make both environments carry the same `CHILD_LEARNING_DB_PATH`.
 - **A child cannot open an activity:** inspect **Adult view → Learning roadmap**. The concept may be locked, deferred, tied to an inactive curriculum revision, or waiting for an earlier learning stage. An adult can open an early introduction without recording false mastery.
 - **Photo work does not affect progress:** this is intentional. Open **Adult view → Reviews** and confirm the evidence with a score and rationale.
 - **Plugin changes are not visible:** rerun `pnpm plugin:build`, then reinstall the project-scoped Claude target.
