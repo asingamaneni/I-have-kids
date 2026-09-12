@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createLocalService, resolveProjectRoot } from "../src/service.js";
+import { CurriculumProposalInputSchema } from "../src/server.js";
 import { seedFixture } from "./fixtures/seed-fixture.js";
 
 async function withService(test: (service: ReturnType<typeof createLocalService>) => Promise<void>): Promise<void> {
@@ -313,6 +314,37 @@ describe("local MCP service", () => {
       const artifact = await service.composeVisualAsset({ width: 100, height: 100, shapes: [{ kind: "circle", x: 20, y: 20, radius: 10 }] });
       expect(artifact.mediaType).toBe("image/svg+xml");
       await expect(service.composeVisualAsset({ shapes: [{ kind: "script", text: "network" }] })).rejects.toThrow(/unsupported semantic shape/);
+    });
+  });
+
+  it("exposes the proposal wrapper shape to the tool caller instead of accepting anything", () => {
+    const flat = { schemaVersion: "2.0", id: "pack-r2", packId: "pack", revision: 2, title: "Pack", description: "d", subjects: [], concepts: [], provenance: { origin: "original" }, createdBy: "adult" };
+    const result = CurriculumProposalInputSchema.safeParse(flat);
+    expect(result.success).toBe(false);
+    const paths = result.success ? [] : result.error.issues.map((issue) => issue.path.join("."));
+    expect(paths).toContain("revision");
+    expect(paths).toContain("rationale");
+    const wrapped = CurriculumProposalInputSchema.safeParse({ rationale: "r", createdBy: "adult", revision: { ...flat, subjects: [{ id: "civics", title: "Civics", description: "d" }], concepts: [{ id: "civics.communities", subject: "civics", title: "Communities", description: "d", step: 0, activityKinds: ["selected-response"], templateIds: [], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }] } });
+    expect(wrapped.success).toBe(true);
+  });
+
+  it("extends an active revision from a partial proposal without resending historical concepts", async () => {
+    await withService(async (service) => {
+      const active = (service.listCurriculum() as { activeRevisions: Array<{ id: string; packId: string; revision: number; concepts: Array<{ id: string }> }> }).activeRevisions.find((revision) => revision.packId === "core-foundations")!;
+      const stored = await service.proposeCurriculumRevision({
+        extendsRevisionId: active.id, rationale: "Add telling time after addition.", createdBy: "adult-author", basedOnRevisionIds: [], affectedStudentIds: [],
+        revision: {
+          concepts: [{ id: "math.telling-time-hour", subject: "math", title: "Telling time to the hour", description: "Read an analog clock to the hour.", step: 9, activityKinds: ["selected-response"], templateIds: ["math-time-hour-guided"], stages: [{ stage: "guided", deliveryMode: "guided-screen", evidencePurpose: "formative", generator: "template-bank" }] }],
+          edges: [{ id: "edge-addition-to-time", from: "math.addition-within-10", to: "math.telling-time-hour", type: "requires" }],
+          activityTemplates: [{ id: "math-time-hour-guided", conceptId: "math.telling-time-hour", stage: "guided", title: "Clock reading", objectives: ["Read the hour hand."], instructions: ["Look at the clock. Choose the time."], items: [{ id: "time-1", conceptId: "math.telling-time-hour", kind: "selected-response", prompt: "The short hand points to 3. What time is it?", choices: ["3 o'clock", "6 o'clock"], correctChoice: "3 o'clock", difficulty: 2 }], answerSpecs: { "time-1": { type: "choice", expected: "3 o'clock" } }, scoring: { method: "exact" } }]
+        }
+      }) as { proposal: { revision: { id: string; revision: number; concepts: Array<{ id: string }> }; basedOnRevisionIds: string[] } };
+      const merged = stored.proposal.revision;
+      expect(merged.revision).toBe(active.revision + 1);
+      expect(merged.id).toBe(`core-foundations-r${active.revision + 1}`);
+      expect(merged.concepts.map((concept) => concept.id)).toEqual([...active.concepts.map((concept) => concept.id), "math.telling-time-hour"]);
+      expect(stored.proposal.basedOnRevisionIds).toContain(active.id);
+      await expect(service.proposeCurriculumRevision({ extendsRevisionId: "nope", rationale: "r", createdBy: "adult", basedOnRevisionIds: [], affectedStudentIds: [], revision: {} })).rejects.toThrow(/active curriculum revision/);
     });
   });
 });

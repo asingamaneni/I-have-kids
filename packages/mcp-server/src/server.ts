@@ -3,7 +3,16 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { CurriculumPackRevisionSchema, CurriculumRevisionProposalSchema, IdSchema, IsoDateTimeSchema } from "@child-learning/contracts";
 import { createLocalService, resolveProjectRoot, type LocalService } from "./service.js";
+
+/** Tool input for propose_curriculum_revision: a proposal wrapper whose ids and timestamps the service can fill in. */
+export const CurriculumProposalInputSchema = CurriculumRevisionProposalSchema.omit({ id: true, createdAt: true, revision: true }).extend({
+  id: IdSchema.optional(),
+  createdAt: IsoDateTimeSchema.optional(),
+  extendsRevisionId: IdSchema.optional().describe("Preferred: id of the active revision to extend. Only the new or changed subjects, concepts, edges, and activityTemplates need to be sent in `revision`; everything else is carried forward by id and the revision number is bumped automatically."),
+  revision: CurriculumPackRevisionSchema.omit({ createdAt: true }).partial().extend({ createdAt: IsoDateTimeSchema.optional() }).describe("The CurriculumPackRevision. Complete when extendsRevisionId is absent; partial (new items only) when it is set.")
+});
 
 export { createLocalService, requireDataPath, resolveProjectRoot } from "./service.js";
 export type { LocalService, LocalServiceOptions, DataStatus } from "./service.js";
@@ -46,7 +55,7 @@ export function createMcpServer(service = createLocalService()): McpServer {
   register("get_curriculum_graph", "Read active curriculum nodes and typed edges for one subject or the full local registry.", z.object({ subject: z.string().min(1).optional() }), async ({ subject }: { subject?: string }) => service.getCurriculumGraph(subject));
   register("get_learning_roadmap", "Read a per-subject learner graph. Child output omits scores, evidence analytics, locked nodes, and adult rationale.", z.object({ studentId, adult: z.boolean().default(false) }), async ({ studentId: id, adult }: { studentId: string; adult: boolean }) => service.getLearningRoadmaps(id, adult));
   register("reconcile_learning_roadmap", "Deterministically refresh frontier and evidence-backed practice branches without inventing curriculum.", z.object({ studentId, triggerType: z.string().min(1).optional(), triggerId: studentId.optional() }), async ({ studentId: id, triggerType, triggerId }: { studentId: string; triggerType?: string; triggerId?: string }) => service.reconcileLearningRoadmaps(id, triggerType, triggerId));
-  register("propose_curriculum_revision", "Validate and store an immutable curriculum graph proposal. A proposal cannot affect active learner roadmaps until an adult approves and activates it.", z.object({ proposal: z.unknown() }), async ({ proposal }: { proposal: unknown }) => service.proposeCurriculumRevision(proposal as any));
+  register("propose_curriculum_revision", "Validate and store an immutable curriculum graph proposal. Preferred usage: set `proposal.extendsRevisionId` to the active revision id (from list_curriculum or get_curriculum_graph) and put ONLY the new concepts, edges, subjects, and activityTemplates under `proposal.revision`; historical concepts are carried forward automatically and must not be resent. Put `rationale`, `createdBy`, and `affectedStudentIds` beside `revision`. Without extendsRevisionId, `revision` must be a complete CurriculumPackRevision. A proposal cannot affect active learner roadmaps until an adult approves and activates it.", z.object({ proposal: CurriculumProposalInputSchema }), async ({ proposal }: { proposal: z.infer<typeof CurriculumProposalInputSchema> }) => service.proposeCurriculumRevision(proposal as Parameters<LocalService["proposeCurriculumRevision"]>[0]));
   register("decide_curriculum_revision", "Append an explicit adult approval or rejection for one curriculum proposal.", z.object({ proposalId: studentId, decision: z.enum(["approved", "rejected"]), reviewerId: studentId, note: z.string().min(1), now }), async (input: any) => service.decideCurriculumRevision(input));
   register("activate_curriculum_revision", "Activate an approved immutable revision, or append a rollback activation to a previously approved revision.", z.object({ proposalId: studentId.optional(), revisionId: studentId.optional(), actorId: studentId, reason: z.string().min(1), action: z.enum(["activate", "rollback"]).optional(), now }), async (input: any) => service.activateCurriculumRevision(input));
   register("apply_learning_directive", "Append an adult directive to introduce, prioritize, defer, or clear a concept without claiming prerequisite mastery.", z.object({ id: studentId, studentId, conceptId: studentId, action: z.enum(["introduce", "assess", "prioritize", "defer", "clear"]), reason: z.string().min(1), authorId: studentId, requestedStage: z.string().min(1).optional(), priority: z.number().int().min(1).max(5).optional(), expiresAt: now, operationKey }), async (input: any) => service.applyLearningDirective(input));

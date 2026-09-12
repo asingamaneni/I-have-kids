@@ -124,7 +124,12 @@ export interface LocalService {
   getCurriculumGraph(subject?: string): Record<string, unknown>;
   getLearningRoadmaps(studentId: string, adult?: boolean): Record<string, unknown>;
   reconcileLearningRoadmaps(studentId: string, triggerType?: string, triggerId?: string): Promise<Record<string, unknown>>;
-  proposeCurriculumRevision(input: Omit<CurriculumRevisionProposal, "id" | "createdAt"> & { id?: string; createdAt?: string }): Promise<Record<string, unknown>>;
+  /**
+   * Store a curriculum proposal. Two modes: a complete pack revision under `revision`, or, when `extendsRevisionId` names an
+   * active revision, a partial `revision` whose subjects/concepts/edges/activityTemplates are merged by id onto that base so
+   * callers never have to resend every historical concept.
+   */
+  proposeCurriculumRevision(input: Omit<CurriculumRevisionProposal, "id" | "createdAt" | "revision"> & { id?: string | undefined; createdAt?: string | undefined; extendsRevisionId?: string | undefined; revision: Partial<Omit<CurriculumPackRevision, "createdAt">> & { createdAt?: string | undefined } }): Promise<Record<string, unknown>>;
   decideCurriculumRevision(input: { proposalId: string; decision: "approved" | "rejected"; reviewerId: string; note: string; now?: string }): CurriculumRevisionDecision;
   activateCurriculumRevision(input: { proposalId?: string; revisionId?: string; actorId: string; reason: string; action?: "activate" | "rollback"; now?: string }): Promise<Record<string, unknown>>;
   applyLearningDirective(input: { id: string; studentId: string; conceptId: string; action: "introduce" | "assess" | "prioritize" | "defer" | "clear"; reason: string; authorId: string; requestedStage?: RepresentationStage; priority?: number; expiresAt?: string; operationKey?: string }): Promise<Record<string, unknown>>;
@@ -758,7 +763,33 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     },
     async proposeCurriculumRevision(input) {
       const at = iso(input.createdAt, clock);
-      const revision = CurriculumPackRevisionSchema.parse({ ...input.revision, createdAt: input.revision.createdAt ?? at });
+      const mergeById = <T extends { id: string }>(base: readonly T[], extra: readonly T[] | undefined): T[] => {
+        const merged = new Map(base.map((item) => [item.id, item]));
+        for (const item of extra ?? []) merged.set(item.id, item);
+        return [...merged.values()];
+      };
+      let draft: Record<string, unknown>;
+      if (input.extendsRevisionId) {
+        const base = registry.revisions.find((candidate) => candidate.id === input.extendsRevisionId);
+        if (!base) throw new Error(`extendsRevisionId must name an active curriculum revision: ${input.extendsRevisionId}`);
+        const partial = Object.fromEntries(Object.entries(input.revision).filter(([, value]) => value !== undefined));
+        const revisionNumber = input.revision.revision ?? base.revision + 1;
+        draft = {
+          ...base, ...partial,
+          schemaVersion: "2.0", packId: base.packId, revision: revisionNumber,
+          id: input.revision.id ?? `${base.packId}-r${revisionNumber}`,
+          subjects: mergeById(base.subjects, input.revision.subjects),
+          concepts: mergeById(base.concepts, input.revision.concepts),
+          edges: mergeById(base.edges, input.revision.edges),
+          activityTemplates: mergeById(base.activityTemplates, input.revision.activityTemplates),
+          provenance: input.revision.provenance ?? base.provenance,
+          createdBy: input.revision.createdBy ?? input.createdBy,
+          createdAt: input.revision.createdAt ?? at
+        };
+      } else {
+        draft = { ...input.revision, createdAt: input.revision.createdAt ?? at };
+      }
+      const revision = CurriculumPackRevisionSchema.parse(draft);
       const previous = registry.revisions.find((candidate) => candidate.packId === revision.packId);
       if (previous) {
         const nextIds = new Set(revision.concepts.map((concept) => concept.id));
@@ -767,7 +798,7 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
         if (revision.revision <= previous.revision) throw new Error(`curriculum revision number must be greater than ${previous.revision}`);
       }
       new CurriculumRegistry([...registry.revisions.filter((candidate) => candidate.packId !== revision.packId), revision], registryOptions);
-      const proposal = CurriculumRevisionProposalSchema.parse({ id: input.id ?? `curriculum-proposal-${randomUUID()}`, revision, rationale: input.rationale, basedOnRevisionIds: input.basedOnRevisionIds, affectedStudentIds: input.affectedStudentIds, createdBy: input.createdBy, createdAt: at });
+      const proposal = CurriculumRevisionProposalSchema.parse({ id: input.id ?? `curriculum-proposal-${randomUUID()}`, revision, rationale: input.rationale, basedOnRevisionIds: [...new Set([...(input.extendsRevisionId ? [input.extendsRevisionId] : []), ...(input.basedOnRevisionIds ?? [])])], affectedStudentIds: input.affectedStudentIds, createdBy: input.createdBy, createdAt: at });
       const revisionArtifact = await store.put(JSON.stringify(revision), { mediaType: "application/json", fileExtension: ".json", metadata: { kind: "curriculum-revision", revisionId: revision.id, packId: revision.packId } });
       const proposalArtifact = await store.put(JSON.stringify(proposal), { mediaType: "application/json", fileExtension: ".json", metadata: { kind: "curriculum-proposal", proposalId: proposal.id, revisionId: revision.id } });
       await store.addLineageEdge(revisionArtifact.id, proposalArtifact.id, "proposed-from");
