@@ -40,7 +40,7 @@ const commandFiles = (await readdir(commandSourceRoot, { withFileTypes: true }))
   .map((entry) => entry.name)
   .sort();
 
-if (commandFiles.length !== 11 || commandFiles.some((name) => !name.startsWith("child-learning-"))) failures.push("Expected exactly 11 child-learning entry skill sources");
+if (commandFiles.length !== 10 || commandFiles.some((name) => !name.startsWith("child-learning-"))) failures.push("Expected exactly 10 child-learning entry skill sources");
 
 for (const commandFile of commandFiles) {
   const name = basename(commandFile, ".md");

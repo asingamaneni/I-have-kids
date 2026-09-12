@@ -1,35 +1,29 @@
-export type LearnerRouteScope = "household" | "demo";
-
 export function encodeLearnerSegment(studentId: string): string {
   return encodeURIComponent(studentId);
 }
 
-function learnerBase(scope: LearnerRouteScope): string {
-  return scope === "demo" ? "/demo" : "";
+export function childHomeRoute(studentId: string): string {
+  return `/child/${encodeLearnerSegment(studentId)}`;
 }
 
-export function childHomeRoute(studentId: string, scope: LearnerRouteScope = "household"): string {
-  return `${learnerBase(scope)}/child/${encodeLearnerSegment(studentId)}`;
+export function childHistoryRoute(studentId: string): string {
+  return `${childHomeRoute(studentId)}/history`;
 }
 
-export function childHistoryRoute(studentId: string, scope: LearnerRouteScope = "household"): string {
-  return `${childHomeRoute(studentId, scope)}/history`;
+export function childRoadmapRoute(studentId: string): string {
+  return `${childHomeRoute(studentId)}/roadmap`;
 }
 
-export function childRoadmapRoute(studentId: string, scope: LearnerRouteScope = "household"): string {
-  return `${childHomeRoute(studentId, scope)}/roadmap`;
+export function childActivityRoute(studentId: string, activityId: string): string {
+  return `${childHomeRoute(studentId)}/activity/${encodeURIComponent(activityId)}`;
 }
 
-export function childActivityRoute(studentId: string, activityId: string, scope: LearnerRouteScope = "household"): string {
-  return `${childHomeRoute(studentId, scope)}/activity/${encodeURIComponent(activityId)}`;
+export function childHowToRoute(studentId: string, activityId: string): string {
+  return `${childActivityRoute(studentId, activityId)}/how-to`;
 }
 
-export function childHowToRoute(studentId: string, activityId: string, scope: LearnerRouteScope = "household"): string {
-  return `${childActivityRoute(studentId, activityId, scope)}/how-to`;
-}
-
-export function adultHomeRoute(studentId: string, scope: LearnerRouteScope = "household"): string {
-  return `${learnerBase(scope)}/adult/${encodeLearnerSegment(studentId)}`;
+export function adultHomeRoute(studentId: string): string {
+  return `/adult/${encodeLearnerSegment(studentId)}`;
 }
 
 export function sanitizeAdultReturnPath(value: string | null | undefined): string {
@@ -43,6 +37,6 @@ export function sanitizeAdultReturnPath(value: string | null | undefined): strin
   }
   if (parsed.origin !== "http://local.invalid") return "/";
   const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  if (parsed.pathname === "/setup" || parsed.pathname.startsWith("/adult/") || parsed.pathname.startsWith("/demo/adult/") || parsed.pathname.startsWith("/print/")) return path;
+  if (parsed.pathname === "/setup" || parsed.pathname.startsWith("/adult/") || parsed.pathname.startsWith("/print/")) return path;
   return "/";
 }

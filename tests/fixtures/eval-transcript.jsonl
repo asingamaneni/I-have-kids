@@ -1,0 +1,10 @@
+{"type":"system","subtype":"init","cwd":"/tmp/workdir","session_id":"sess-1","tools":["mcp__plugin_child-learning_child-learning-local__list_students","mcp__plugin_child-learning_child-learning-local__get_activity"],"mcp_servers":[{"name":"plugin:child-learning:child-learning-local","status":"connected"}],"model":"claude-sonnet-5","permissionMode":"dontAsk"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Loading the activity."},{"type":"tool_use","id":"toolu_1","name":"mcp__plugin_child-learning_child-learning-local__get_activity","input":{"activityId":"activity-1","adult":true}}]}}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Loading the activity."},{"type":"tool_use","id":"toolu_1","name":"mcp__plugin_child-learning_child-learning-local__get_activity","input":{"activityId":"activity-1","adult":true}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"{\"activity\":{\"id\":\"activity-1\"}}"}]}]}}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"mcp__plugin_child-learning_child-learning-local__get_progress","input":{"studentId":"student-eval"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"Error: student not found","is_error":true}]}}
+this line is not json
+{"type":"stream_event","event":{"type":"content_block_delta"}}
+{"type":"assistant","message":{"id":"msg_3","role":"assistant","content":[{"type":"text","text":"Submission submission-1 scored 5 of 5. No adult review is needed."}]}}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":4200,"num_turns":3,"result":"Submission submission-1 scored 5 of 5. No adult review is needed.","total_cost_usd":0.0123,"permission_denials":[],"session_id":"sess-1"}

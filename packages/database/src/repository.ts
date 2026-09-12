@@ -10,7 +10,7 @@ export interface StudentInput {
   displayName: string;
   birthDate?: string;
   grade?: string;
-  dataScope?: "household" | "demo" | "legacy-mixed";
+  dataScope?: "household";
   sourceDatasetId?: string;
   metadata?: JsonObject;
 }
@@ -162,7 +162,7 @@ export class LearningRepository {
     return this.db.prepare("SELECT * FROM students WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   }
 
-  listStudents(scopes: readonly ("household" | "demo" | "legacy-mixed")[] = ["household", "legacy-mixed"]): Record<string, unknown>[] {
+  listStudents(scopes: readonly "household"[] = ["household"]): Record<string, unknown>[] {
     if (scopes.length === 0) return [];
     const placeholders = scopes.map(() => "?").join(",");
     return this.db.prepare(`SELECT * FROM students WHERE data_scope IN (${placeholders}) ORDER BY created_at, id`).all(...scopes) as Record<string, unknown>[];
@@ -174,7 +174,6 @@ export class LearningRepository {
     const requestedScope = input.dataScope ?? (existing?.data_scope as StudentInput["dataScope"] | undefined) ?? "household";
     const existingDataset = typeof existing?.source_dataset_id === "string" ? existing.source_dataset_id : undefined;
     const requestedDataset = input.sourceDatasetId ?? existingDataset;
-    if (requestedScope === "household" && (input.id.startsWith("synthetic-demo-") || input.id.startsWith("student-demo-"))) throw new Error("The synthetic demo id namespace is reserved.");
     if (existing && (String(existing.data_scope) !== requestedScope || existingDataset !== requestedDataset)) throw new Error("Student data scope and dataset ownership cannot be changed by saveStudent.");
     this.db.prepare(`INSERT INTO students (id, display_name, birth_date, grade, data_scope, source_dataset_id, created_at, updated_at, metadata_json)
       VALUES (@id, @displayName, @birthDate, @grade, @dataScope, @sourceDatasetId, @now, @now, @metadata)

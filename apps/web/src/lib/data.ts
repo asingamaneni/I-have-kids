@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { ActivitySpecSchema, ChildActivitySpecSchema, SubmissionSchema, StudentSchema, toChildActivitySpec, type ActivitySpec, type CapabilityClaim, type ChildActivitySpec, type ConceptAvailability, type CurriculumRevisionProposal, type Student, type StudentCreateRequest, type Submission } from "@child-learning/contracts";
 import { filterAvailableActivities } from "@child-learning/domain";
-import { createDemoService, createLocalService, type LocalService } from "@child-learning/mcp-server";
+import { createLocalService, type LocalService } from "@child-learning/mcp-server";
 import { normalizeImage } from "@child-learning/storage";
 
 type ServiceWork<T> = (service: LocalService) => Promise<T> | T;
-export type DataScope = "household" | "demo";
 
-async function withService<T>(work: ServiceWork<T>, scope: DataScope = "household"): Promise<T> {
-  const service = scope === "demo" ? createDemoService() : createLocalService();
+async function withService<T>(work: ServiceWork<T>): Promise<T> {
+  const service = createLocalService();
   try { return await work(service); } finally { service.close(); }
 }
 
@@ -24,10 +23,8 @@ function parseActivityRow(row: Record<string, unknown> | undefined): ActivitySpe
   return ActivitySpecSchema.parse(JSON.parse(String(row.specification_json)));
 }
 
-export async function ensureDemoData(): Promise<void> { await withService((service) => service.initializeDemo("2026-01-15T12:00:00.000Z").then(() => undefined), "demo"); }
-
-export async function getStudent(studentId: string, scope: DataScope = "household"): Promise<Student | undefined> {
-  return withService((service) => toStudent(service.repo.getStudent(studentId)), scope);
+export async function getStudent(studentId: string): Promise<Student | undefined> {
+  return withService((service) => toStudent(service.repo.getStudent(studentId)));
 }
 
 export async function createStudentWithStarter(input: StudentCreateRequest) {
@@ -38,21 +35,21 @@ export async function getStudentProgressRows(studentId: string) {
   return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), states: service.db.prepare("SELECT * FROM student_concept_state WHERE student_id = ? ORDER BY concept_id").all(studentId) as Record<string, unknown>[] }));
 }
 
-export async function getStudentTimeline(studentId: string, scope: DataScope = "household") {
-  return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), timeline: service.repo.timeline(studentId) }), scope);
+export async function getStudentTimeline(studentId: string) {
+  return withService((service) => ({ student: toStudent(service.repo.getStudent(studentId)), timeline: service.repo.timeline(studentId) }));
 }
 
-export async function getAvailableChildActivities(studentId: string, scope: DataScope = "household") {
+export async function getAvailableChildActivities(studentId: string) {
   return withService((service) => {
     const student = toStudent(service.repo.getStudent(studentId));
     if (!student) return { student, activities: [] as ChildActivitySpec[], learningPathVersion: "capability-path-v1" };
     const activities = service.repo.listActivities(studentId).map(parseActivityRow).filter((value): value is ActivitySpec => Boolean(value));
     const learningPath = service.getLearningPath(studentId) as { availability: ConceptAvailability[]; curriculumVersion: string };
     return { student, activities: filterAvailableActivities(activities.filter((activity) => service.registry.activityMatchesActiveRevision(activity)), learningPath.availability).map(toChildActivitySpec), learningPathVersion: learningPath.curriculumVersion };
-  }, scope);
+  });
 }
 
-export async function getStudentBundle(studentId: string, scope: DataScope = "household") {
+export async function getStudentBundle(studentId: string) {
   return withService((service) => {
     const student = toStudent(service.repo.getStudent(studentId));
     const activities = service.repo.listActivities(studentId).map(parseActivityRow).filter((value): value is ActivitySpec => Boolean(value));
@@ -68,11 +65,11 @@ export async function getStudentBundle(studentId: string, scope: DataScope = "ho
     const recommendations = service.db.prepare("SELECT * FROM recommendations WHERE student_id = ? ORDER BY created_at DESC").all(studentId) as Record<string, unknown>[];
     const learnerWork = student ? service.projectLearnerWork(studentId) : { current: [], history: [], recommendation: undefined };
     return { student, activities, availableActivities, learnerWork, learningPath, roadmaps, states, submissions, evaluations, pendingEvaluations, timeline, reports, recommendations };
-  }, scope);
+  });
 }
 
-export async function getLearnerRoadmaps(studentId: string, adult = false, scope: DataScope = "household") {
-  return withService((service) => service.getLearningRoadmaps(studentId, adult), scope);
+export async function getLearnerRoadmaps(studentId: string, adult = false) {
+  return withService((service) => service.getLearningRoadmaps(studentId, adult));
 }
 
 export async function getCurriculumOverview() {
@@ -128,13 +125,13 @@ export async function getWorksheetReview(studentId: string, submissionId: string
   `).get(studentId, submissionId) as Record<string, unknown> | undefined);
 }
 
-export async function getAdultActivity(activityId: string, scope: DataScope = "household"): Promise<ActivitySpec | undefined> {
+export async function getAdultActivity(activityId: string): Promise<ActivitySpec | undefined> {
   return withService((service) => {
     try { return ActivitySpecSchema.parse(service.getActivity(activityId, true)); } catch { return undefined; }
-  }, scope);
+  });
 }
 
-export async function getChildActivity(activityId: string, scope: DataScope = "household"): Promise<ChildActivitySpec | undefined> {
+export async function getChildActivity(activityId: string): Promise<ChildActivitySpec | undefined> {
   return withService((service) => {
     try {
       const adultActivity = ActivitySpecSchema.parse(service.getActivity(activityId, true));
@@ -142,21 +139,21 @@ export async function getChildActivity(activityId: string, scope: DataScope = "h
       if (!service.registry.activityMatchesActiveRevision(adultActivity) || filterAvailableActivities([adultActivity], learningPath.availability).length === 0) return undefined;
       return ChildActivitySpecSchema.parse(service.getActivity(activityId, false));
     } catch { return undefined; }
-  }, scope);
+  });
 }
 
-export async function getHistoricalChildActivity(activityId: string, studentId: string, scope: DataScope = "household"): Promise<ChildActivitySpec | undefined> {
+export async function getHistoricalChildActivity(activityId: string, studentId: string): Promise<ChildActivitySpec | undefined> {
   return withService((service) => {
     try {
       const activity = ActivitySpecSchema.parse(service.getActivity(activityId, true));
       if (activity.studentId !== studentId) return undefined;
       return toChildActivitySpec(activity);
     } catch { return undefined; }
-  }, scope);
+  });
 }
 
-export async function isValidRetrySource(studentId: string, activityId: string, submissionId: string, scope: DataScope = "household"): Promise<boolean> {
-  return withService((service) => Boolean(service.db.prepare("SELECT 1 FROM submissions WHERE id = ? AND student_id = ? AND activity_id = ?").get(submissionId, studentId, activityId)), scope);
+export async function isValidRetrySource(studentId: string, activityId: string, submissionId: string): Promise<boolean> {
+  return withService((service) => Boolean(service.db.prepare("SELECT 1 FROM submissions WHERE id = ? AND student_id = ? AND activity_id = ?").get(submissionId, studentId, activityId)));
 }
 
 export async function saveGeneratedActivity(specInput: unknown) {
@@ -170,12 +167,12 @@ export async function generateAndStoreActivity(input: { subject?: string; concep
   });
 }
 
-export async function saveDigitalSubmission(input: Submission, scope: DataScope = "household"): Promise<Record<string, unknown>> {
+export async function saveDigitalSubmission(input: Submission): Promise<Record<string, unknown>> {
   const parsed = SubmissionSchema.parse(input);
-  return withService((service) => service.recordDigitalSubmission(parsed), scope);
+  return withService((service) => service.recordDigitalSubmission(parsed));
 }
 
-export async function savePhotoSubmission(studentId: string, activityId: string, file: File, scope: DataScope = "household", retryOfSubmissionId?: string) {
+export async function savePhotoSubmission(studentId: string, activityId: string, file: File, retryOfSubmissionId?: string) {
   if (!studentId || !activityId) throw new Error("studentId and activityId are required.");
   if (file.size > 8 * 1024 * 1024) throw new Error("Image must be 8 MB or smaller.");
   const originalBytes = new Uint8Array(await file.arrayBuffer());
@@ -223,7 +220,7 @@ export async function savePhotoSubmission(studentId: string, activityId: string,
       evaluation: proposal.evaluation,
       needsReview: true,
     };
-  }, scope);
+  });
 }
 
 export async function confirmEvaluation(evaluationId: string, reviewerId: string, score: number, rationale: string) { return withService((service) => service.confirmEvaluation({ evaluationId, reviewerId, score, rationale })); }

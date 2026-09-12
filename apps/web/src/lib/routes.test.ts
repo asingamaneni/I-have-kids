@@ -8,13 +8,8 @@ describe("learner routes", () => {
     expect(childHowToRoute("learner/a", "activity/1")).toBe("/child/learner%2Fa/activity/activity%2F1/how-to");
   });
 
-  it("keeps demo routes in the demo family", () => {
-    expect(childHomeRoute("demo", "demo")).toBe("/demo/child/demo");
-    expect(adultHomeRoute("demo", "demo")).toBe("/demo/adult/demo");
-  });
-
   it("allows only protected local return paths", () => {
-    for (const path of ["/adult/s1", "/adult/s1/path?subject=math", "/demo/adult/s1", "/print/activity/a1", "/setup"]) expect(sanitizeAdultReturnPath(path)).toBe(path);
+    for (const path of ["/adult/s1", "/adult/s1/path?subject=math", "/print/activity/a1", "/setup"]) expect(sanitizeAdultReturnPath(path)).toBe(path);
     for (const path of [undefined, "", "https://example.com/adult/s1", "//example.com/adult/s1", "/child/s1", "/api/reports", "/adult\\evil"]) expect(sanitizeAdultReturnPath(path)).toBe("/");
   });
 });

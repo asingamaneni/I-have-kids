@@ -58,7 +58,6 @@ import {
   scoreSubmission,
 } from "@child-learning/domain";
 import { closeDatabase, LearningRepository, migrateDatabase, openDatabase, type SqliteDatabase } from "@child-learning/database";
-import { seedDemo } from "@child-learning/demo";
 import { ArtifactStore, type StoredArtifact } from "@child-learning/storage";
 import { reportWindow } from "./report-periods.js";
 
@@ -68,7 +67,6 @@ export interface LocalServiceOptions {
   artifactsDir?: string;
   clock?: () => string;
   env?: NodeJS.ProcessEnv;
-  dataScope?: Student["dataScope"];
 }
 
 export interface RecommendationRequestOptions {
@@ -85,12 +83,11 @@ export interface ReportGenerationOptions {
   asOf?: string;
 }
 
-export interface DemoStatus {
+export interface DataStatus {
   initialized: boolean;
   projectRoot: string;
   databasePath: string;
   artifactsDir: string;
-  dataLocation: "explicit" | "workspace" | "legacy-web" | "demo";
   students: number;
   activities: number;
   submissions: number;
@@ -102,14 +99,12 @@ export interface LocalService {
   readonly root: string;
   readonly databasePath: string;
   readonly artifactsDir: string;
-  readonly dataScope: Student["dataScope"];
   readonly db: SqliteDatabase;
   readonly repo: LearningRepository;
   readonly store: ArtifactStore;
   readonly registry: CurriculumRegistry;
   close(): void;
-  initializeDemo(now?: string): Promise<unknown>;
-  demoStatus(): DemoStatus;
+  dataStatus(): DataStatus;
   listStudents(): Student[];
   createStudent(input: { id?: string; displayName: string; birthDate?: string; schoolPlacement?: string; preferredLanguage?: string; accommodations?: string[]; interests?: string[]; learningGoals?: string[]; selectedSubjects?: string[]; reportedCapabilities?: Student["reportedCapabilities"]; baselineNotes?: string; baselineStatus?: Student["baselineStatus"] }): Student;
   createLearnerWithIntake(input: StudentCreateRequest): Promise<Record<string, unknown>>;
@@ -124,12 +119,19 @@ export interface LocalService {
   confirmEvaluation(input: { evaluationId: string; reviewerId: string; score: number; rationale: string; now?: string }): Promise<Record<string, unknown>>;
   rejectEvaluation(input: { evaluationId: string; reviewerId: string; reason: string; now?: string }): Promise<Record<string, unknown>>;
   getProgress(studentId: string, conceptId?: string): Record<string, unknown>;
+  /** Read one evaluation by id with its submission/activity link, review chain, and artifact ids. Child output omits rationale, confidence, and analytics. */
+  getEvaluation(evaluationId: string, adult?: boolean): Record<string, unknown>;
   getLearningPath(studentId: string): Record<string, unknown>;
   listCurriculum(): Record<string, unknown>;
   getCurriculumGraph(subject?: string): Record<string, unknown>;
   getLearningRoadmaps(studentId: string, adult?: boolean): Record<string, unknown>;
   reconcileLearningRoadmaps(studentId: string, triggerType?: string, triggerId?: string): Promise<Record<string, unknown>>;
-  proposeCurriculumRevision(input: Omit<CurriculumRevisionProposal, "id" | "createdAt"> & { id?: string; createdAt?: string }): Promise<Record<string, unknown>>;
+  /**
+   * Store a curriculum proposal. Two modes: a complete pack revision under `revision`, or, when `extendsRevisionId` names an
+   * active revision, a partial `revision` whose subjects/concepts/edges/activityTemplates are merged by id onto that base so
+   * callers never have to resend every historical concept.
+   */
+  proposeCurriculumRevision(input: Omit<CurriculumRevisionProposal, "id" | "createdAt" | "revision"> & { id?: string | undefined; createdAt?: string | undefined; extendsRevisionId?: string | undefined; revision: Partial<Omit<CurriculumPackRevision, "createdAt">> & { createdAt?: string | undefined } }): Promise<Record<string, unknown>>;
   decideCurriculumRevision(input: { proposalId: string; decision: "approved" | "rejected"; reviewerId: string; note: string; now?: string }): CurriculumRevisionDecision;
   activateCurriculumRevision(input: { proposalId?: string; revisionId?: string; actorId: string; reason: string; action?: "activate" | "rollback"; now?: string }): Promise<Record<string, unknown>>;
   applyLearningDirective(input: { id: string; studentId: string; conceptId: string; action: "introduce" | "assess" | "prioritize" | "defer" | "clear"; reason: string; authorId: string; requestedStage?: RepresentationStage; priority?: number; expiresAt?: string; operationKey?: string }): Promise<Record<string, unknown>>;
@@ -341,18 +343,18 @@ export function planStartingDiagnostics(registry: CurriculumRegistry, intake: Le
   return [...chosen.values()].map((target) => ({ subject: target.subject, conceptId: target.conceptId, stage: target.stage, ...(target.claim ? { claim: target.claim } : {}) }));
 }
 
+export function requireDataPath(value: string | undefined, variableName: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new Error(`${variableName} is not set. The learning data location has no default: set ${variableName} (and its artifacts counterpart) so every process reads and writes the same store.`);
+  return trimmed;
+}
+
 export function createLocalService(options: LocalServiceOptions = {}): LocalService {
   const env = options.env ?? process.env;
   const root = resolve(options.projectRoot ?? resolveProjectRoot(env));
-  const dataScope = options.dataScope ?? "household";
-  const explicitDatabasePath = options.databasePath ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_DB_PATH : env.CHILD_LEARNING_DB_PATH) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_DB_PATH ?? env.LEARNING_WORKTABLE_DB);
-  const explicitArtifactsDir = options.artifactsDir ?? (dataScope === "demo" ? env.CHILD_LEARNING_DEMO_ARTIFACTS_DIR : env.CHILD_LEARNING_ARTIFACTS_DIR) ?? (dataScope === "demo" ? undefined : env.KINDERGARTEN_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS);
-  const legacyDatabasePath = join(root, "apps/web/.data/learning-worktable.db");
-  const useLegacyWebData = dataScope !== "demo" && !explicitDatabasePath && existsSync(legacyDatabasePath);
   const resolveDataPath = (value: string): string => isAbsolute(value) ? resolve(value) : resolve(root, value);
-  const databasePath = resolveDataPath(explicitDatabasePath ?? (dataScope === "demo" ? ".data/demo/learning-worktable.db" : useLegacyWebData ? "apps/web/.data/learning-worktable.db" : ".data/learning-worktable.db"));
-  const artifactsDir = resolveDataPath(explicitArtifactsDir ?? (dataScope === "demo" ? ".data/demo/artifacts" : useLegacyWebData ? "apps/web/.data/artifacts" : ".data/artifacts"));
-  const dataLocation: DemoStatus["dataLocation"] = dataScope === "demo" && !explicitDatabasePath && !explicitArtifactsDir ? "demo" : explicitDatabasePath || explicitArtifactsDir ? "explicit" : useLegacyWebData ? "legacy-web" : "workspace";
+  const databasePath = resolveDataPath(requireDataPath(options.databasePath ?? env.CHILD_LEARNING_DB_PATH ?? env.LEARNING_WORKTABLE_DB, "CHILD_LEARNING_DB_PATH"));
+  const artifactsDir = resolveDataPath(requireDataPath(options.artifactsDir ?? env.CHILD_LEARNING_ARTIFACTS_DIR ?? env.LEARNING_WORKTABLE_ARTIFACTS, "CHILD_LEARNING_ARTIFACTS_DIR"));
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = openDatabase({ filename: databasePath });
   migrateDatabase(db);
@@ -397,22 +399,18 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     if (pendingDiagnostics === 0) repo.saveStudent({ id: learner.id, displayName: learner.displayName, ...(learner.birthDate ? { birthDate: learner.birthDate } : {}), grade: learner.gradeBand, metadata: { preferredLanguage: learner.preferredLanguage, accommodations: learner.accommodations, interests: learner.interests, learningGoals: learner.learningGoals, selectedSubjects: learner.selectedSubjects, reportedCapabilities: learner.reportedCapabilities, baselineNotes: learner.baselineNotes, baselineStatus: "established" } });
   };
   const service: LocalService = {
-    root, databasePath, artifactsDir, dataScope, db, repo, store,
+    root, databasePath, artifactsDir, db, repo, store,
     get registry() { return registry; },
     close: () => closeDatabase(db),
-    async initializeDemo(now) {
-      if (dataScope !== "demo") throw new Error("Demo initialization requires the isolated demo service.");
-      return seedDemo({ databasePath, artifactsDir, now: now ?? clock() });
-    },
-    demoStatus() {
+    dataStatus() {
       const counts = dbCounts(db);
-      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, dataLocation, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
+      return { initialized: counts.students > 0 || counts.activities > 0, projectRoot: root, databasePath, artifactsDir, students: counts.students, activities: counts.activities, submissions: counts.submissions, evaluations: counts.evaluations, progressEvents: counts.progress_events };
     },
-    listStudents: () => repo.listStudents(dataScope === "demo" ? ["demo", "legacy-mixed"] : ["household", "legacy-mixed"]).map(rowStudent),
+    listStudents: () => repo.listStudents(["household"]).map(rowStudent),
     createStudent(input) {
       const now = clock();
-      const generatedId = dataScope === "demo" ? `synthetic-demo-v2-student-${randomUUID()}` : `student-${randomUUID()}`;
-      const student = StudentSchema.parse({ id: input.id ?? generatedId, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "awaiting-intake", dataScope, createdAt: now, updatedAt: now });
+      const generatedId = `student-${randomUUID()}`;
+      const student = StudentSchema.parse({ id: input.id ?? generatedId, displayName: input.displayName, ...(input.birthDate ? { birthDate: input.birthDate } : {}), gradeBand: input.schoolPlacement ?? "school-age", preferredLanguage: input.preferredLanguage ?? "en", accommodations: input.accommodations ?? [], interests: input.interests ?? [], learningGoals: input.learningGoals ?? [], selectedSubjects: input.selectedSubjects ?? [], reportedCapabilities: input.reportedCapabilities ?? [], ...(input.baselineNotes ? { baselineNotes: input.baselineNotes } : {}), baselineStatus: input.baselineStatus ?? "awaiting-intake", dataScope: "household", createdAt: now, updatedAt: now });
       const row = repo.saveStudent({ id: student.id, displayName: student.displayName, ...(student.birthDate ? { birthDate: student.birthDate } : {}), grade: student.gradeBand, dataScope: student.dataScope, ...(student.sourceDatasetId ? { sourceDatasetId: student.sourceDatasetId } : {}), metadata: { preferredLanguage: student.preferredLanguage, accommodations: student.accommodations, interests: student.interests, learningGoals: student.learningGoals, selectedSubjects: student.selectedSubjects, reportedCapabilities: student.reportedCapabilities, baselineNotes: student.baselineNotes, baselineStatus: student.baselineStatus } });
       return rowStudent(row);
     },
@@ -428,7 +426,6 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       const row = repo.getStudent(studentId);
       if (!row) throw new Error(`student not found: ${studentId}`);
       const student = rowStudent(row);
-      if (student.dataScope !== dataScope) throw new Error("Learner data scope does not match this service.");
       const targets = planStartingDiagnostics(registry, intake, student.selectedSubjects);
       if (targets.length === 0) throw new Error("Choose an observed ability or an explicit subject entry diagnostic before creating work.");
       const observedCapabilities = [...new Set([...student.reportedCapabilities, ...intake.observedCapabilities, ...intake.questionnaireAnchors.flatMap((anchor) => anchor.capabilityId ? [anchor.capabilityId] : [])])];
@@ -712,6 +709,40 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       tx();
       return { originalEvaluationId: original.id, evaluation: rejected, artifact, reviewEvent, originalUnchanged: true, gradedStateChanged: false };
     },
+    getEvaluation(evaluationId, adult = false) {
+      const row = db.prepare("SELECT * FROM evaluations WHERE id = ?").get(evaluationId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error(`evaluation not found: ${evaluationId}`);
+      const evaluation = rowEvaluation(row);
+      const submission = db.prepare("SELECT id, student_id, activity_id, submitted_at, retry_of_submission_id, artifact_id FROM submissions WHERE id = ?").get(evaluation.submissionId) as Record<string, unknown> | undefined;
+      const chain: Evaluation[] = [];
+      let cursor: string | undefined = evaluation.id;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        const next = db.prepare("SELECT evaluation_json FROM evaluations WHERE supersedes_evaluation_id = ? ORDER BY evaluated_at, id LIMIT 1").get(cursor) as { evaluation_json: string } | undefined;
+        if (!next) break;
+        const parsed = rowEvaluation(next);
+        chain.push(parsed);
+        cursor = parsed.id;
+      }
+      const artifactIds = (db.prepare("SELECT id FROM artifacts WHERE json_extract(metadata_json, '$.evaluationId') = ?").all(evaluation.id) as Array<{ id: string }>).map((entry) => entry.id);
+      const current = chain.at(-1) ?? evaluation;
+      const activityRow = submission ? db.prepare("SELECT specification_json FROM activities WHERE id = ?").get(String(submission.activity_id)) as { specification_json: string } | undefined : undefined;
+      const activity = activityRow ? ActivitySpecSchema.parse(parseJson(activityRow.specification_json, {})) : undefined;
+      const childItem = (item: Evaluation["items"][number]) => ({ itemId: item.itemId, score: item.score, evidenceStatus: item.evidenceStatus });
+      const project = (value: Evaluation) => adult ? value : { id: value.id, submissionId: value.submissionId, studentId: value.studentId, conceptId: value.conceptId, score: value.score, status: value.status, evaluatorType: value.evaluatorType, evaluatedAt: value.evaluatedAt, followUp: { required: value.followUp.required, recommendedActivityIds: value.followUp.recommendedActivityIds }, items: value.items.map(childItem) };
+      return {
+        audience: adult ? "adult" : "child",
+        evaluation: project(evaluation),
+        current: project(current),
+        reviewChain: chain.map(project),
+        needsHumanReview: current.status === "needs-human-review" || current.items.some((item) => item.evidenceStatus !== "confirmed"),
+        confirmed: current.status === "final" && current.items.every((item) => item.evidenceStatus === "confirmed"),
+        submission: submission ? { id: String(submission.id), studentId: String(submission.student_id), activityId: String(submission.activity_id), submittedAt: String(submission.submitted_at), ...(submission.retry_of_submission_id ? { retryOfSubmissionId: String(submission.retry_of_submission_id) } : {}), ...(submission.artifact_id ? { artifactId: String(submission.artifact_id) } : {}) } : undefined,
+        activity: activity ? { id: activity.id, title: activity.title, subject: activity.subject, conceptId: activity.conceptId, representationStage: activity.representationStage, activityType: activity.activityType, itemIds: activity.items.map((item) => item.id) } : undefined,
+        artifactIds
+      };
+    },
     getProgress(studentId, conceptId) {
       if (!repo.getStudent(studentId)) throw new Error(`student not found: ${studentId}`);
       const states = (conceptId ? [repo.getConceptState(studentId, conceptId)] : (db.prepare("SELECT * FROM student_concept_state WHERE student_id = ?").all(studentId) as Record<string, unknown>[])).filter(Boolean).map((row) => ({ studentId, conceptId: String(row!.concept_id), step: Number(row!.step), status: String(row!.status), recentScores: parseJson<number[]>(row!.recent_scores_json, []), updatedAt: String(row!.updated_at), lastEvidenceAt: row!.last_event_at ? String(row!.last_event_at) : undefined }));
@@ -768,7 +799,33 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     },
     async proposeCurriculumRevision(input) {
       const at = iso(input.createdAt, clock);
-      const revision = CurriculumPackRevisionSchema.parse({ ...input.revision, createdAt: input.revision.createdAt ?? at });
+      const mergeById = <T extends { id: string }>(base: readonly T[], extra: readonly T[] | undefined): T[] => {
+        const merged = new Map(base.map((item) => [item.id, item]));
+        for (const item of extra ?? []) merged.set(item.id, item);
+        return [...merged.values()];
+      };
+      let draft: Record<string, unknown>;
+      if (input.extendsRevisionId) {
+        const base = registry.revisions.find((candidate) => candidate.id === input.extendsRevisionId);
+        if (!base) throw new Error(`extendsRevisionId must name an active curriculum revision: ${input.extendsRevisionId}`);
+        const partial = Object.fromEntries(Object.entries(input.revision).filter(([, value]) => value !== undefined));
+        const revisionNumber = input.revision.revision ?? base.revision + 1;
+        draft = {
+          ...base, ...partial,
+          schemaVersion: "2.0", packId: base.packId, revision: revisionNumber,
+          id: input.revision.id ?? `${base.packId}-r${revisionNumber}`,
+          subjects: mergeById(base.subjects, input.revision.subjects),
+          concepts: mergeById(base.concepts, input.revision.concepts),
+          edges: mergeById(base.edges, input.revision.edges),
+          activityTemplates: mergeById(base.activityTemplates, input.revision.activityTemplates),
+          provenance: input.revision.provenance ?? base.provenance,
+          createdBy: input.revision.createdBy ?? input.createdBy,
+          createdAt: input.revision.createdAt ?? at
+        };
+      } else {
+        draft = { ...input.revision, createdAt: input.revision.createdAt ?? at };
+      }
+      const revision = CurriculumPackRevisionSchema.parse(draft);
       const previous = registry.revisions.find((candidate) => candidate.packId === revision.packId);
       if (previous) {
         const nextIds = new Set(revision.concepts.map((concept) => concept.id));
@@ -777,7 +834,7 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
         if (revision.revision <= previous.revision) throw new Error(`curriculum revision number must be greater than ${previous.revision}`);
       }
       new CurriculumRegistry([...registry.revisions.filter((candidate) => candidate.packId !== revision.packId), revision], registryOptions);
-      const proposal = CurriculumRevisionProposalSchema.parse({ id: input.id ?? `curriculum-proposal-${randomUUID()}`, revision, rationale: input.rationale, basedOnRevisionIds: input.basedOnRevisionIds, affectedStudentIds: input.affectedStudentIds, createdBy: input.createdBy, createdAt: at });
+      const proposal = CurriculumRevisionProposalSchema.parse({ id: input.id ?? `curriculum-proposal-${randomUUID()}`, revision, rationale: input.rationale, basedOnRevisionIds: [...new Set([...(input.extendsRevisionId ? [input.extendsRevisionId] : []), ...(input.basedOnRevisionIds ?? [])])], affectedStudentIds: input.affectedStudentIds, createdBy: input.createdBy, createdAt: at });
       const revisionArtifact = await store.put(JSON.stringify(revision), { mediaType: "application/json", fileExtension: ".json", metadata: { kind: "curriculum-revision", revisionId: revision.id, packId: revision.packId } });
       const proposalArtifact = await store.put(JSON.stringify(proposal), { mediaType: "application/json", fileExtension: ".json", metadata: { kind: "curriculum-proposal", proposalId: proposal.id, revisionId: revision.id } });
       await store.addLineageEdge(revisionArtifact.id, proposalArtifact.id, "proposed-from");
@@ -1048,9 +1105,6 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
   return service;
 }
 
-export function createDemoService(options: Omit<LocalServiceOptions, "dataScope"> = {}): LocalService {
-  return createLocalService({ ...options, dataScope: "demo" });
-}
 
 function boundedInt(value: number, min: number, max: number): number { if (!Number.isInteger(value) || value < min || value > max) throw new Error(`value must be an integer between ${min} and ${max}`); return value; }
 function esc(value: unknown): string { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[char] ?? char); }

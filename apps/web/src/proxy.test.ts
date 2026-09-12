@@ -15,27 +15,26 @@ function token(pin: string): string {
 }
 
 describe("optional adult PIN proxy", () => {
-  it("leaves the zero-configuration local demo open", async () => {
+  it("leaves adult routes open when no PIN is configured", async () => {
     delete process.env.LEARNING_ADULT_PIN;
-    const response = await proxy(new NextRequest("http://localhost/adult/student-demo-ava"));
+    const response = await proxy(new NextRequest("http://localhost/adult/student-ava"));
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("protects adult household and demo routes without blocking child-safe counterparts", () => {
+  it("protects adult routes without blocking child-safe counterparts", () => {
     expect(unstable_doesMiddlewareMatch({ config, url: "/adult/student-1/path" })).toBe(true);
-    expect(unstable_doesMiddlewareMatch({ config, url: "/demo/adult/demo-student/path" })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, url: "/child/student-1/roadmap" })).toBe(false);
-    expect(unstable_doesMiddlewareMatch({ config, url: "/api/adult/students/student-demo-ava/roadmap" })).toBe(true);
-    expect(unstable_doesMiddlewareMatch({ config, url: "/api/students/student-demo-ava/roadmap" })).toBe(false);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/adult/students/student-ava/roadmap" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/students/student-ava/roadmap" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, url: "/api/activities/activity-addition-01" })).toBe(false);
   });
 
   it("redirects an unauthenticated adult page request to the unlock page", async () => {
     process.env.LEARNING_ADULT_PIN = "2468";
-    const response = await proxy(new NextRequest("http://localhost/adult/student-demo-ava/progress"));
+    const response = await proxy(new NextRequest("http://localhost/adult/student-ava/progress"));
     expect(response.status).toBeGreaterThanOrEqual(300);
     expect(response.headers.get("location")).toContain("/adult/unlock");
-    expect(response.headers.get("location")).toContain(encodeURIComponent("/adult/student-demo-ava/progress"));
+    expect(response.headers.get("location")).toContain(encodeURIComponent("/adult/student-ava/progress"));
   });
 
   it("preserves a safe setup return path", async () => {
@@ -54,7 +53,7 @@ describe("optional adult PIN proxy", () => {
 
   it("allows protected APIs with the matching local access cookie", async () => {
     process.env.LEARNING_ADULT_PIN = "2468";
-    const request = new NextRequest("http://localhost/api/adult/students/student-demo-ava/roadmap", { headers: { cookie: `learning-adult-access=${token("2468")}` } });
+    const request = new NextRequest("http://localhost/api/adult/students/student-ava/roadmap", { headers: { cookie: `learning-adult-access=${token("2468")}` } });
     const response = await proxy(request);
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
