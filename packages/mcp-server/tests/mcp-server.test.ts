@@ -347,4 +347,27 @@ describe("local MCP service", () => {
       await expect(service.proposeCurriculumRevision({ extendsRevisionId: "nope", rationale: "r", createdBy: "adult", basedOnRevisionIds: [], affectedStudentIds: [], revision: {} })).rejects.toThrow(/active curriculum revision/);
     });
   });
+
+  it("reads one evaluation by id with its review chain and child-safe projection", async () => {
+    await withService(async (service) => {
+      const intake = await service.createLearnerWithIntake({ id: "student-eval-lookup", displayName: "Lookup", selectedSubjects: ["math"], currentCapabilities: ["math.adds-with-symbols"] }) as { starters: Array<{ activity: { id: string; items: Array<{ id: string }>; answerSpecs: Record<string, { expected?: unknown }> } }> };
+      const spec = intake.starters[0]!.activity;
+      const recorded = await service.recordDigitalSubmission({ id: "submission-lookup", activityId: spec.id, studentId: "student-eval-lookup", responses: spec.items.map((item) => ({ itemId: item.id, value: spec.answerSpecs[item.id]!.expected, capturedAt: "2026-02-01T00:00:00.000Z" })) }) as { evaluation: { id: string } };
+      const child = service.getEvaluation(recorded.evaluation.id) as { confirmed: boolean; needsHumanReview: boolean; evaluation: { items: Array<Record<string, unknown>> }; submission: { activityId: string }; activity: { id: string }; artifactIds: string[] };
+      expect(child.confirmed).toBe(true);
+      expect(child.needsHumanReview).toBe(false);
+      expect(child.submission.activityId).toBe(spec.id);
+      expect(child.activity.id).toBe(spec.id);
+      expect(child.artifactIds.length).toBeGreaterThan(0);
+      expect(Object.keys(child.evaluation.items[0]!)).toEqual(["itemId", "score", "evidenceStatus"]);
+      const adult = service.getEvaluation(recorded.evaluation.id, true) as { evaluation: { items: Array<{ rationale: string }> } };
+      expect(adult.evaluation.items[0]!.rationale.length).toBeGreaterThan(0);
+      const pending = await service.proposeUploadedWorkEvaluation({ submissionId: "submission-lookup", evidence: ["photo"], confidence: 0.4 }) as { evaluation: { id: string } };
+      const rejected = await service.rejectEvaluation({ evaluationId: pending.evaluation.id, reviewerId: "adult-1", reason: "Unreadable." }) as { evaluation: { id: string } };
+      const chain = service.getEvaluation(pending.evaluation.id, true) as { reviewChain: Array<{ id: string }>; current: { id: string; status: string } };
+      expect(chain.reviewChain.map((entry) => entry.id)).toEqual([rejected.evaluation.id]);
+      expect(chain.current.id).toBe(rejected.evaluation.id);
+      expect(() => service.getEvaluation("missing")).toThrow(/evaluation not found/);
+    });
+  });
 });

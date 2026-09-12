@@ -119,6 +119,8 @@ export interface LocalService {
   confirmEvaluation(input: { evaluationId: string; reviewerId: string; score: number; rationale: string; now?: string }): Promise<Record<string, unknown>>;
   rejectEvaluation(input: { evaluationId: string; reviewerId: string; reason: string; now?: string }): Promise<Record<string, unknown>>;
   getProgress(studentId: string, conceptId?: string): Record<string, unknown>;
+  /** Read one evaluation by id with its submission/activity link, review chain, and artifact ids. Child output omits rationale, confidence, and analytics. */
+  getEvaluation(evaluationId: string, adult?: boolean): Record<string, unknown>;
   getLearningPath(studentId: string): Record<string, unknown>;
   listCurriculum(): Record<string, unknown>;
   getCurriculumGraph(subject?: string): Record<string, unknown>;
@@ -706,6 +708,40 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       });
       tx();
       return { originalEvaluationId: original.id, evaluation: rejected, artifact, reviewEvent, originalUnchanged: true, gradedStateChanged: false };
+    },
+    getEvaluation(evaluationId, adult = false) {
+      const row = db.prepare("SELECT * FROM evaluations WHERE id = ?").get(evaluationId) as Record<string, unknown> | undefined;
+      if (!row) throw new Error(`evaluation not found: ${evaluationId}`);
+      const evaluation = rowEvaluation(row);
+      const submission = db.prepare("SELECT id, student_id, activity_id, submitted_at, retry_of_submission_id, artifact_id FROM submissions WHERE id = ?").get(evaluation.submissionId) as Record<string, unknown> | undefined;
+      const chain: Evaluation[] = [];
+      let cursor: string | undefined = evaluation.id;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        const next = db.prepare("SELECT evaluation_json FROM evaluations WHERE supersedes_evaluation_id = ? ORDER BY evaluated_at, id LIMIT 1").get(cursor) as { evaluation_json: string } | undefined;
+        if (!next) break;
+        const parsed = rowEvaluation(next);
+        chain.push(parsed);
+        cursor = parsed.id;
+      }
+      const artifactIds = (db.prepare("SELECT id FROM artifacts WHERE json_extract(metadata_json, '$.evaluationId') = ?").all(evaluation.id) as Array<{ id: string }>).map((entry) => entry.id);
+      const current = chain.at(-1) ?? evaluation;
+      const activityRow = submission ? db.prepare("SELECT specification_json FROM activities WHERE id = ?").get(String(submission.activity_id)) as { specification_json: string } | undefined : undefined;
+      const activity = activityRow ? ActivitySpecSchema.parse(parseJson(activityRow.specification_json, {})) : undefined;
+      const childItem = (item: Evaluation["items"][number]) => ({ itemId: item.itemId, score: item.score, evidenceStatus: item.evidenceStatus });
+      const project = (value: Evaluation) => adult ? value : { id: value.id, submissionId: value.submissionId, studentId: value.studentId, conceptId: value.conceptId, score: value.score, status: value.status, evaluatorType: value.evaluatorType, evaluatedAt: value.evaluatedAt, followUp: { required: value.followUp.required, recommendedActivityIds: value.followUp.recommendedActivityIds }, items: value.items.map(childItem) };
+      return {
+        audience: adult ? "adult" : "child",
+        evaluation: project(evaluation),
+        current: project(current),
+        reviewChain: chain.map(project),
+        needsHumanReview: current.status === "needs-human-review" || current.items.some((item) => item.evidenceStatus !== "confirmed"),
+        confirmed: current.status === "final" && current.items.every((item) => item.evidenceStatus === "confirmed"),
+        submission: submission ? { id: String(submission.id), studentId: String(submission.student_id), activityId: String(submission.activity_id), submittedAt: String(submission.submitted_at), ...(submission.retry_of_submission_id ? { retryOfSubmissionId: String(submission.retry_of_submission_id) } : {}), ...(submission.artifact_id ? { artifactId: String(submission.artifact_id) } : {}) } : undefined,
+        activity: activity ? { id: activity.id, title: activity.title, subject: activity.subject, conceptId: activity.conceptId, representationStage: activity.representationStage, activityType: activity.activityType, itemIds: activity.items.map((item) => item.id) } : undefined,
+        artifactIds
+      };
     },
     getProgress(studentId, conceptId) {
       if (!repo.getStudent(studentId)) throw new Error(`student not found: ${studentId}`);
