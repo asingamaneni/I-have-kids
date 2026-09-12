@@ -419,6 +419,28 @@ Before the full verification suite, install its browser once:
 pnpm exec playwright install chromium
 ```
 
+### Skill evals
+
+Unit tests cover deterministic code; skill evals check that Claude actually follows each `SKILL.md` when it runs. Every reusable skill has a `plugin/skills/<skill>/evals/` folder and every entry skill has `plugin/commands/evals/<command>/`, each holding Markdown scenario cases with assertions in three tiers:
+
+| Tier | Purpose | Effect |
+|---|---|---|
+| Tier 0 (Critical) | Deterministic guardrails: run completed, forbidden tools not called, required tools called, database row counts | Any failure fails the case |
+| Tier 1 (Important) | Expected behaviour, including LLM-judged rubrics | Scored, never fails a case |
+| Tier 2 (Capability Tracking) | Duration and tool-call budgets | Reported for trends |
+
+Each case runs in a headless `claude -p` session against `dist/plugin/claude` with its own temporary database and artifact directory seeded from a named fixture, so evals never touch household data. Build the plugin first, then:
+
+```sh
+pnpm plugin:build
+pnpm eval:skills                                   # every case
+pnpm eval:skills check-work                        # one skill
+pnpm eval:skills check-work:grades-stored-submission
+pnpm eval:skills --dry-run                         # seed fixtures and validate cases without calling Claude
+```
+
+Useful flags: `--model sonnet` (default), `--concurrency 3`, `--budget 1` (USD per case), `--keep` (keep each case's scratch data). The run writes `eval-results.json`, `eval-results.md`, and per-case `_eval_output.jsonl` transcripts under `.data/evals/eval-results-<timestamp>/` and prints `RESULTS_DIR=<path>` as its last line. `pnpm test` includes a static guard that every skill has cases and every assertion parses. See `docs/decisions/0010-skill-evals.md` for the assertion grammar rationale and `evals/assertions.ts` for the full list of checks.
+
 ### Troubleshooting
 
 - **Port 3000 is busy:** run `pnpm --filter @child-learning/web exec next dev --webpack --port 3100` and open the printed URL.

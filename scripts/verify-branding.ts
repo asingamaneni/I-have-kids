@@ -25,6 +25,7 @@ const allowed: Record<string, RegExp[]> = {
   "plugin/hooks/scripts/fast-verify.sh": [/KINDERGARTEN_PROJECT_ROOT/],
   "plugin/hooks/scripts/session-status.sh": [/KINDERGARTEN_PROJECT_ROOT/],
   "scripts/bundle-mcp.ts": [/KINDERGARTEN_PROJECT_ROOT/],
+  "evals/claude-runner.ts": [/KINDERGARTEN_(?:PROJECT_ROOT|DB_PATH|ARTIFACTS_DIR)/],
   "scripts/verify-claude-plugin-output.ts": [/KINDERGARTEN_PROJECT_ROOT/],
 };
 
