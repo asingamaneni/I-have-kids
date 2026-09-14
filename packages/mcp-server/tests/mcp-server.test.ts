@@ -133,8 +133,8 @@ describe("local MCP service", () => {
     await withService(async (service) => {
       await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
       const generated = service.generateActivity({ subject: "math", seed: 77, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
-      const subtraction = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 78, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
-      const science = service.generateActivity({ generator: "science.observe-and-describe", seed: 79, studentId: "student-fixture-ava", itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
+      const subtraction = service.generateActivity({ conceptId: "math.subtraction-within-10", seed: 78, itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
+      const science = service.generateActivity({ generator: "science.observe-and-describe", seed: 79, itemCount: 2, now: "2026-02-01T00:00:00.000Z" });
       expect(subtraction.conceptId).toBe("math.subtraction-within-10");
       expect(science.scoring.method).toBe("observation");
       await service.validateAndStoreActivity(generated);
@@ -227,6 +227,31 @@ describe("local MCP service", () => {
       expect(report.conceptStates).toHaveLength(0);
       expect(report.worksheetSummaries).toHaveLength(0);
       expect(Number((service.db.prepare("SELECT COUNT(*) AS count FROM roadmap_reconciliation_runs").get() as { count: number }).count)).toBe(before);
+    });
+  });
+
+  it("refuses to generate a locked concept for a student but keeps unscoped generation pure", async () => {
+    await withService(async (service) => {
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      const path = service.getLearningPath("student-fixture-ava") as { availability: Array<{ conceptId: string; status: string; currentStage: string; unmetPrerequisiteIds: string[] }> };
+      const locked = path.availability.find((concept) => concept.status === "locked" && concept.unmetPrerequisiteIds.length > 0)!;
+      const open = path.availability.find((concept) => concept.status === "active" || concept.status === "available")!;
+      expect(() => service.generateActivity({ conceptId: locked.conceptId, seed: 1, studentId: "student-fixture-ava", now: "2026-02-01T00:00:00.000Z" })).toThrow(new RegExp(`${locked.conceptId} .* is not available: .*Unmet prerequisites: ${locked.unmetPrerequisiteIds[0]}`));
+      expect(service.generateActivity({ conceptId: open.conceptId, seed: 2, studentId: "student-fixture-ava", representationStage: open.currentStage as never, now: "2026-02-01T00:00:00.000Z" }).conceptId).toBe(open.conceptId);
+      expect(service.generateActivity({ conceptId: locked.conceptId, seed: 3, now: "2026-02-01T00:00:00.000Z" }).conceptId).toBe(locked.conceptId);
+    });
+  });
+
+  it("names the recommended activity in report next steps and pluralizes the summary", async () => {
+    await withService(async (service) => {
+      await seedFixture({ databasePath: service.databasePath, artifactsDir: service.artifactsDir, now: "2026-02-01T00:00:00.000Z" });
+      const result = await service.generateProgressReport("student-fixture-ava", { kind: "current", asOf: "2026-02-01T00:00:00.000Z", timeZone: "UTC" });
+      const report = result.report as { recommendedNextSteps: string[]; summary: string; recommendation: { selectedActivityId?: string; conciseReason: string } };
+      expect(report.recommendation.selectedActivityId).toBeDefined();
+      const selected = service.getActivity(report.recommendation.selectedActivityId!) as { title: string; conceptId: string; representationStage: string };
+      expect(report.recommendedNextSteps).toEqual([`Start '${selected.title}' (${selected.conceptId}, ${selected.representationStage}). ${report.recommendation.conciseReason}`]);
+      expect(report.summary).toMatch(/^(1 area needs|\d+ areas need) attention and /);
+      expect(report.summary).toContain(`Next: Start '${selected.title}'`);
     });
   });
 

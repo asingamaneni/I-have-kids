@@ -398,6 +398,14 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
     const pendingDiagnostics = Number((db.prepare(`SELECT COUNT(*) AS count FROM activities a WHERE a.student_id = ? AND a.activity_type = 'assessment' AND a.title LIKE 'Starting check:%' AND NOT EXISTS (SELECT 1 FROM submissions s JOIN evaluations e ON e.submission_id = s.id AND e.outcome = 'final' WHERE s.activity_id = a.id)`).get(studentId) as { count: number }).count);
     if (pendingDiagnostics === 0) repo.saveStudent({ id: learner.id, displayName: learner.displayName, ...(learner.birthDate ? { birthDate: learner.birthDate } : {}), grade: learner.gradeBand, metadata: { preferredLanguage: learner.preferredLanguage, accommodations: learner.accommodations, interests: learner.interests, learningGoals: learner.learningGoals, selectedSubjects: learner.selectedSubjects, reportedCapabilities: learner.reportedCapabilities, baselineNotes: learner.baselineNotes, baselineStatus: "established" } });
   };
+  function assertConceptAvailableForStudent(studentId: string, spec: ActivitySpec, availability = (service.getLearningPath(studentId) as { availability: ConceptAvailability[] }).availability): void {
+    const entry = availability.find((concept) => concept.conceptId === spec.conceptId);
+    if (!entry) throw new Error(`activity concept is not registered in the runtime curriculum: ${spec.conceptId}`);
+    if (filterAvailableActivities([spec], availability).length > 0) return;
+    const chain = entry.unmetPrerequisiteIds.length > 0 ? ` Unmet prerequisites: ${entry.unmetPrerequisiteIds.join(", ")}. Call get_learning_path or recommend_next_activity to choose an available concept.` : "";
+    throw new Error(`${spec.conceptId} at the ${spec.representationStage ?? entry.stageOrder[0]} stage is not available: ${entry.reason}${chain}`);
+  }
+
   const service: LocalService = {
     root, databasePath, artifactsDir, db, repo, store,
     get registry() { return registry; },
@@ -470,6 +478,9 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       if (!concept || !selectedStage) return ActivitySpecSchema.parse(generated);
       const revision = registry.revisionForConcept(concept.id)!;
       const normalized = ActivitySpecSchema.parse({ ...generated, subject: concept.subject, conceptId: concept.id, representationStage: selectedStage.stage, deliveryMode: selectedStage.deliveryMode, evidencePurpose: selectedStage.evidencePurpose, curriculumVersion: revision.id, curriculumRef: { packId: revision.packId, revisionId: revision.id, nodeRevisionId: `${revision.id}:${concept.id}` }, difficultyLevel: input.difficultyLevel ?? generated.difficultyLevel, prerequisiteConceptIds: [...concept.prerequisites, ...concept.readinessConceptIds], comparabilityKey: "pending" });
+      // A student-scoped request for an explicit concept must already be on that learner's path.
+      // Generation stays pure for previews and authoring (no studentId); storing re-checks regardless.
+      if (input.studentId && (input.conceptId || input.generator) && repo.getStudent(input.studentId)) assertConceptAvailableForStudent(input.studentId, normalized);
       return { ...normalized, comparabilityKey: comparabilityKey(normalized) };
     },
     async validateAndStoreActivity(specInput) {
@@ -490,7 +501,7 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
         if (spec.deliveryMode !== stageDefinition.deliveryMode || spec.evidencePurpose !== stageDefinition.evidencePurpose) throw new Error(`${spec.conceptId} ${spec.representationStage} activity does not match the curriculum delivery and evidence purpose`);
         if (stageDefinition.deliveryMode === "hands-on" && !spec.presentation) throw new Error("hands-on introductions require a presentation");
       }
-      if (filterAvailableActivities([spec], path.availability).length === 0) throw new Error(`${spec.conceptId} at the ${spec.representationStage ?? "pictorial"} stage is not available: ${conceptAvailability.reason}`);
+      assertConceptAvailableForStudent(spec.studentId, spec, path.availability);
       const existing = db.prepare("SELECT specification_json, artifact_id FROM activities WHERE id = ?").get(spec.id) as { specification_json: string; artifact_id: string | null } | undefined;
       if (existing) {
         const existingSpec = ActivitySpecSchema.parse(JSON.parse(existing.specification_json));
@@ -1063,7 +1074,9 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
       const recentActivityRows = db.prepare(`SELECT a.id,a.subject,a.concept_id FROM submissions s JOIN activities a ON a.id=s.activity_id WHERE s.student_id=? AND s.submitted_at<=? ORDER BY s.submitted_at DESC,s.id DESC LIMIT 5`).all(studentId, cutoff) as Array<{ id: string; subject: ActivitySpec["subject"]; concept_id: string }>;
       const prioritizedConceptIds = directives.filter((directive) => directive.action === "prioritize" || directive.action === "assess").map((directive) => directive.conceptId);
       const recommendation = rankRecommendations(eligibleActivities, { studentId, now: cutoff, states, events: history, overrides: activeHumanOverrides(directiveRows), adultGoalConceptIds: prioritizedConceptIds, recentActivities: recentActivityRows.map((activity) => ({ id: activity.id, subject: activity.subject, conceptId: activity.concept_id })) });
-      const recommendedNextSteps = recommendation.selectedActivityId ? [recommendation.conciseReason] : [];
+      const selectedActivity = recommendation.selectedActivityId ? eligibleActivities.find((activity) => activity.id === recommendation.selectedActivityId) : undefined;
+      const nextStep = selectedActivity ? `Start '${selectedActivity.title}' (${selectedActivity.conceptId}, ${selectedActivity.representationStage}). ${recommendation.conciseReason}` : undefined;
+      const recommendedNextSteps = nextStep ? [nextStep] : [];
 
       const submissionRows = db.prepare(`SELECT s.*,a.title,a.subject,a.concept_id,a.specification_json FROM submissions s JOIN activities a ON a.id=s.activity_id
         WHERE s.student_id=? AND s.submitted_at<=? ${periodStart ? "AND s.submitted_at>=?" : ""} ORDER BY s.submitted_at DESC,s.id DESC`).all(...(periodStart ? [studentId, cutoff, periodStart] : [studentId, cutoff])) as Record<string, unknown>[];
@@ -1075,7 +1088,7 @@ export function createLocalService(options: LocalServiceOptions = {}): LocalServ
         const evaluation = resolveActiveEvaluation(evaluations, String(row.id));
         return { submissionId: String(row.id), activityId: String(row.activity_id), title: String(row.title), subject: activity.subject, conceptId: String(row.concept_id), submittedAt: String(row.submitted_at), ...(evaluation ? { evaluationId: evaluation.id, score: evaluation.score, correctItems: evaluation.items.filter((item) => item.evidenceStatus === "confirmed" && item.score === 1).length } : {}), status: evaluation?.status ?? "not-evaluated" as const, totalItems: activity.items.length };
       });
-      const summary = states.length === 0 ? "No confirmed concept evidence was available by this report cutoff." : `${needsPractice.length} area${needsPractice.length === 1 ? "" : "s"} need attention and ${strengths.length} strength area${strengths.length === 1 ? " is" : "s are"} supported by evidence. ${recommendation.conciseReason}`;
+      const summary = states.length === 0 ? "No confirmed concept evidence was available by this report cutoff." : `${needsPractice.length} area${needsPractice.length === 1 ? " needs" : "s need"} attention and ${strengths.length} strength area${strengths.length === 1 ? " is" : "s are"} supported by evidence. ${nextStep ? `Next: ${nextStep}` : "No activity is currently eligible to recommend."}`;
       const report = ReportSnapshotSchema.parse({ id: `report-${studentId}-${randomUUID()}`, studentId, asOf: cutoff, kind: window.kind, ...(window.period ? { period: window.period } : {}), conceptStates: states, evidence, strengths, needsPractice, recommendedNextSteps, worksheetSummaries, learningPath: availability, roadmapRevisionIds, recommendation, summary });
       const artifact = await store.putText(JSON.stringify(report), { source: "local-progress-report", kind: "report-snapshot", studentId, reportKind: window.kind, asOf: cutoff });
       const evaluationSupports = evaluationRows.map((row) => String(row.id));

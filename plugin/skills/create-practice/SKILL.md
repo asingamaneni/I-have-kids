@@ -9,6 +9,8 @@ effort: medium
 
 Create a reusable activity, not a one-off prose worksheet.
 
+**Never call `generate_activity` for a student before `get_learning_path` (or `get_student_context`) confirms the concept-stage is available for that student.** If the concept is locked, stop and report the unmet prerequisite chain instead of generating; for an open-ended request, pick the concept from the path or `recommend_next_activity`. Always finish with `validate_and_store_activity` so the work reaches the shelf and timeline.
+
 1. Parse `$ARGUMENTS` or the caller's structured request for subject, concept, difficulty, representation stage, activity type, question count, duration, visual support, and student id. Omitted question count means 20; only an explicit request overrides it. Load the student's local learning path, active adult directives, concept state, lifecycle state, and recent history through the available local MCP tools. Refuse to generate generic root work while the learner is awaiting intake.
 2. Read `references/activity-contract.md`. Select a configurable concept-stage and verify application-owned availability. Start a new concept with a concrete introduction unless confirmed evidence or an adult directive supports another stage. Never use grade as a ceiling.
 3. Ask Claude only for capability-appropriate wording, variants, explanations, and personalization. Build answer specifications, scoring, difficulty bounds, and all deterministic facts in the application/domain code. Do not invent tool results.

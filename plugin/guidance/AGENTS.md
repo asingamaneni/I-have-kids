@@ -42,6 +42,7 @@ This plugin is a local-first learning loop for school-age children. Preserve the
 
 ## Tool and workflow discipline
 
+- Canonical activity generation order for any request that names a student: (1) read where the learner is with `get_progress` and `get_learning_path` (or `get_student_context`) — active/available concepts, current stage, unmet prerequisites, adult directives; (2) decide legitimacy — a named concept must be active or available at the requested stage for that student, otherwise stop and report the prerequisite chain instead of generating, and for an open-ended "next worksheet" choose the concept from the path or `recommend_next_activity`; (3) only then call `generate_activity`, then `validate_and_store_activity`. The MCP server enforces step 2 for student-scoped calls, but the skill must check first rather than rely on the refusal.
 - Read the relevant local contract and reference before acting. Use local MCP tools for persistence, retrieval, rendering, and evaluation when available; use application/domain code for deterministic checks.
 - Keep child-facing explanations separate from parent/teacher reporting. Explain mistakes briefly and encouragingly without leaking the answer to the next unsolved item.
 - If a tool response is incomplete, ambiguous, or contradictory, preserve the evidence, mark uncertainty, and ask for adult review rather than guessing.

@@ -220,6 +220,8 @@ claude --plugin-dir "$PWD/dist/plugin/claude"
 
 The plugin starts its bundled local stdio MCP server automatically. Do **not** also run `pnpm mcp`; that script is for MCP development and would start a second server. The web process is needed to view digital activities, print worksheets, upload paper work, and use adult review pages. Claude can generate and persist local activity specifications through MCP even when the web process is not running.
 
+Every student-scoped activity request follows one order: read the learner's position (`get_progress`, `get_learning_path`, or `get_student_context`), confirm the concept-stage is active or available for that student (or pick one from the path / `recommend_next_activity`), and only then `generate_activity` followed by `validate_and_store_activity`. The MCP server refuses `generate_activity` for a locked concept when a `studentId` is given and reports the unmet prerequisites; generation without a `studentId` stays pure for previews and authoring.
+
 ### Start or resume a learner
 
 With a project-scoped installation:
