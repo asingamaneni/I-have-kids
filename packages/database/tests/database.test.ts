@@ -56,13 +56,11 @@ describe("database persistence", () => {
     db.close();
   });
 
-  it("preserves data scope and records immutable retry lineage", () => {
+  it("defaults every learner to household scope and records immutable retry lineage", () => {
     const db = setup();
     const repo = new LearningRepository(db, () => "2026-01-01T00:00:00.000Z");
     repo.saveStudent({ id: "s1", displayName: "Test" });
     expect(repo.getStudent("s1")?.data_scope).toBe("household");
-    expect(() => repo.saveStudent({ id: "s1", displayName: "Changed", dataScope: "demo" })).toThrow(/scope/);
-    expect(() => repo.saveStudent({ id: "synthetic-demo-v2-student", displayName: "Reserved" })).toThrow(/reserved/);
     const spec = { ...generateAdditionWithinTen({ seed: 1, studentId: "s1", itemCount: 2 }), id: "a1" };
     repo.saveActivity({ id: "a1", studentId: "s1", specification: spec });
     const first = repo.recordSubmission({ id: "sub1", studentId: "s1", activityId: "a1" });

@@ -8,7 +8,6 @@
   "dependencies": {
     "@child-learning/contracts": "workspace:*",
     "@child-learning/database": "workspace:*",
-    "@child-learning/demo": "workspace:*",
     "@child-learning/domain": "workspace:*",
     "@child-learning/storage": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",

@@ -345,35 +345,13 @@ function migrateExpandedColumns(db: SqliteDatabase): void {
   for (const [column, definition] of ([["as_of", "TEXT"], ["report_json", "TEXT NOT NULL DEFAULT '{}'" ]] as const)) addColumnIfMissing(db, "report_snapshots", column, definition);
 }
 
-function classifyLegacyDemo(db: SqliteDatabase): void {
-  const demo = db.prepare("SELECT 1 FROM students WHERE id = 'student-demo-ava'").get();
-  if (!demo) return;
-  const canonicalActivityIds = ["activity-addition-01", "activity-addition-02", "activity-addition-03", "activity-addition-04", "activity-addition-next", "activity-english-letter-sounds", "activity-subtraction-01", "activity-equal-groups-01", "activity-fair-sharing-01", "activity-handwriting-01", "activity-reading-detail-01", "activity-reasoning-01", "activity-science-observation-01"];
-  const canonicalSubmissionIds = ["submission-demo-addition-1", "submission-demo-addition-2", "submission-demo-addition-3", "submission-demo-addition-4", "submission-demo-english"];
-  const placeholders = (values: readonly string[]) => values.map(() => "?").join(",");
-  const count = (sql: string, ...args: unknown[]) => Number((db.prepare(sql).get(...args) as { count: number }).count);
-  const activityCount = count("SELECT COUNT(*) AS count FROM activities WHERE student_id = 'student-demo-ava'");
-  const submissionCount = count("SELECT COUNT(*) AS count FROM submissions WHERE student_id = 'student-demo-ava'");
-  const extraActivities = count(`SELECT COUNT(*) AS count FROM activities WHERE student_id = 'student-demo-ava' AND id NOT IN (${placeholders(canonicalActivityIds)})`, ...canonicalActivityIds);
-  const extraSubmissions = count(`SELECT COUNT(*) AS count FROM submissions WHERE student_id = 'student-demo-ava' AND id NOT IN (${placeholders(canonicalSubmissionIds)})`, ...canonicalSubmissionIds);
-  const evaluationCount = count("SELECT COUNT(*) AS count FROM evaluations e JOIN submissions s ON s.id = e.submission_id WHERE s.student_id = 'student-demo-ava'");
-  const progressCount = count("SELECT COUNT(*) AS count FROM progress_events WHERE student_id = 'student-demo-ava'");
-  const recommendationCount = count("SELECT COUNT(*) AS count FROM recommendations WHERE student_id = 'student-demo-ava'");
-  const overrideCount = count("SELECT COUNT(*) AS count FROM human_overrides WHERE student_id = 'student-demo-ava'");
-  const reportCount = count("SELECT COUNT(*) AS count FROM report_snapshots WHERE student_id = 'student-demo-ava'");
-  const canonical = activityCount === canonicalActivityIds.length && submissionCount === canonicalSubmissionIds.length && extraActivities === 0 && extraSubmissions === 0 && evaluationCount === 5 && progressCount === 6 && recommendationCount === 1 && overrideCount === 1 && reportCount === 1;
-  const scope = canonical ? "demo" : "legacy-mixed";
-  db.prepare("UPDATE students SET data_scope = ?, source_dataset_id = ? WHERE id = 'student-demo-ava'").run(scope, scope === "demo" ? "legacy-demo-v1" : null);
-}
-
 function migrateIntegrityColumns(db: SqliteDatabase): void {
-  addColumnIfMissing(db, "students", "data_scope", "TEXT NOT NULL DEFAULT 'household' CHECK (data_scope IN ('household','demo','legacy-mixed'))");
+  addColumnIfMissing(db, "students", "data_scope", "TEXT NOT NULL DEFAULT 'household' CHECK (data_scope IN ('household'))");
   addColumnIfMissing(db, "students", "source_dataset_id", "TEXT");
   addColumnIfMissing(db, "submissions", "retry_of_submission_id", "TEXT REFERENCES submissions(id)");
   addColumnIfMissing(db, "report_snapshots", "period_start", "TEXT");
   addColumnIfMissing(db, "report_snapshots", "period_end", "TEXT");
   addColumnIfMissing(db, "report_snapshots", "time_zone", "TEXT");
-  classifyLegacyDemo(db);
 }
 
 export function migrateDatabase(db: SqliteDatabase): void {

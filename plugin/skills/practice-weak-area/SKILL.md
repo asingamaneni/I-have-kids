@@ -9,6 +9,8 @@ effort: medium
 
 Use local history to identify a recurring mistake pattern, not a single error.
 
+**Never call `generate_activity` for a student before `get_learning_path` (or `get_student_context`) confirms the concept-stage is available for that student.** If the concept is locked, stop and report the unmet prerequisite chain instead of generating; for an open-ended request, pick the concept from the path or `recommend_next_activity`. Always finish with `validate_and_store_activity` so the work reaches the shelf and timeline.
+
 1. Retrieve confirmed evaluations, mistake tags, item evidence, current state, prerequisites, and adult goals through the local MCP tools.
 2. Ask deterministic application code to rank weak areas and enforce age, difficulty, and prerequisite constraints. Ask Claude for varied child-friendly wording only after the target is selected.
 3. Generate the activity specification before rendering, with explicit target sub-skill and answer specs. Avoid repeating an identical worksheet unless review policy calls for it.

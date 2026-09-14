@@ -8,7 +8,7 @@ describe("MCP bundle", () => {
   it("is freshly generated and embeds the current source hash", async () => {
     const root = resolve(import.meta.dirname, "../../..");
     execFileSync("pnpm", ["exec", "tsx", "scripts/bundle-mcp.ts"], { cwd: root, stdio: "ignore" });
-    const sourceRoots = ["contracts", "domain", "database", "storage", "demo", "mcp-server"].map((name) => resolve(root, "packages", name, "src"));
+    const sourceRoots = ["contracts", "domain", "database", "storage", "mcp-server"].map((name) => resolve(root, "packages", name, "src"));
     const collect = async (directory: string): Promise<string[]> => {
       const entries = await readdir(directory, { withFileTypes: true });
       return (await Promise.all(entries.map(async (entry) => entry.isDirectory() ? collect(join(directory, entry.name)) : entry.isFile() && entry.name.endsWith(".ts") ? [join(directory, entry.name)] : []))).flat();

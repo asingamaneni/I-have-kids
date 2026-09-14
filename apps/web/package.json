@@ -11,7 +11,6 @@
   "dependencies": {
     "@child-learning/contracts": "workspace:*",
     "@child-learning/database": "workspace:*",
-    "@child-learning/demo": "workspace:*",
     "@child-learning/domain": "workspace:*",
     "@child-learning/mcp-server": "workspace:*",
     "@child-learning/rendering": "workspace:*",

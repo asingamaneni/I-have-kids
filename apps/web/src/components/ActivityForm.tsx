@@ -7,9 +7,9 @@ import type { WorksheetActivity } from "@child-learning/rendering";
 import { WorksheetRenderer } from "@child-learning/rendering";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { childHomeRoute, type LearnerRouteScope } from "@/lib/routes";
+import { childHomeRoute } from "@/lib/routes";
 
-export function ActivityForm({ activity, routeScope = "household", retryOfSubmissionId }: { activity: WorksheetActivity; routeScope?: LearnerRouteScope; retryOfSubmissionId?: string }) {
+export function ActivityForm({ activity, retryOfSubmissionId }: { activity: WorksheetActivity; retryOfSubmissionId?: string }) {
   const handsOn = activity.deliveryMode === "hands-on" && activity.presentation;
   const [showWorksheet, setShowWorksheet] = useState(!handsOn);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -27,7 +27,6 @@ export function ActivityForm({ activity, routeScope = "household", retryOfSubmis
       activityId: activity.id,
       studentId: activity.studentId,
       submittedAt: now,
-      dataScope: routeScope,
       ...(retryOfSubmissionId ? { retryOfSubmissionId } : {}),
       responses: activity.items.map((item) => ({ itemId: item.id, value: form.get(`response-${item.id}`) ?? "", capturedAt: now })),
     };
@@ -37,7 +36,7 @@ export function ActivityForm({ activity, routeScope = "household", retryOfSubmis
       if (!response.ok) throw new Error(String(result.error ?? "Could not save work"));
       setStatus("saved");
       const submissionId = encodeURIComponent(String(result.submissionId ?? payload.id));
-      router.push(`${childHomeRoute(activity.studentId, routeScope)}/complete?submissionId=${submissionId}`);
+      router.push(`${childHomeRoute(activity.studentId)}/complete?submissionId=${submissionId}`);
     } catch (cause) {
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Could not save work");

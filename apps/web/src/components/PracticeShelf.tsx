@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import type { ChildActivityLifecycle } from "@child-learning/contracts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { childActivityRoute, childHowToRoute, type LearnerRouteScope } from "@/lib/routes";
+import { childActivityRoute, childHowToRoute } from "@/lib/routes";
 
 type ShelfView = "all" | "subject" | "concept";
 
@@ -26,7 +26,7 @@ function displayLabel(value: string): string {
   return value.replaceAll(".", " · ").replaceAll("-", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
-export function PracticeShelf({ studentId, activities, routeScope = "household" }: { studentId: string; activities: ChildActivityLifecycle[]; routeScope?: LearnerRouteScope }) {
+export function PracticeShelf({ studentId, activities }: { studentId: string; activities: ChildActivityLifecycle[] }) {
   const [view, setView] = useState<ShelfView>("all");
   const [selection, setSelection] = useState("all");
   const options = useMemo(() => [...new Set(activities.map((entry) => view === "concept" ? entry.activity.conceptId : entry.activity.subject))].sort(), [activities, view]);
@@ -50,7 +50,7 @@ export function PracticeShelf({ studentId, activities, routeScope = "household" 
       const badge = activityLabel(activity.conceptId);
       const content = <><span className={`activity-badge badge-${index % 3}`} aria-label={badge.label}>{badge.symbol}</span><span className="activity-row-copy"><strong>{activity.title}</strong><small><b className="activity-kind-label">{entry.statusLabel}</b> · {activity.objectives[0]}</small>{entry.recommended && <em className="recommended-label">Best next step</em>}</span><span className="row-action">{entry.actionLabel}</span></>;
       if (entry.status === "awaiting-validation") return <div className="activity-row activity-row-pending" key={activity.id} aria-label={`${activity.title}: ${entry.statusLabel}`}>{content}</div>;
-      return <div className={`activity-row-wrap${entry.recommended ? " is-recommended" : ""}`} key={activity.id}><Link className="activity-row" href={childActivityRoute(studentId, activity.id, routeScope)} aria-label={`${entry.actionLabel}: ${activity.title}`}>{content}</Link>{activity.childGuide && <Link className="activity-how-to-link" href={childHowToRoute(studentId, activity.id, routeScope)}>How to learn this</Link>}</div>;
+      return <div className={`activity-row-wrap${entry.recommended ? " is-recommended" : ""}`} key={activity.id}><Link className="activity-row" href={childActivityRoute(studentId, activity.id)} aria-label={`${entry.actionLabel}: ${activity.title}`}>{content}</Link>{activity.childGuide && <Link className="activity-how-to-link" href={childHowToRoute(studentId, activity.id)}>How to learn this</Link>}</div>;
     })}</div>)}
    </section>;
 }

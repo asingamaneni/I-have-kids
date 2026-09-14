@@ -12,5 +12,5 @@ Use the stored evaluation and item contract, not an invented reconstruction.
 - Explain one idea at a time with concrete language, pictures or a small worked example only when it does not reveal an unsolved answer.
 - Separate child-facing feedback from the adult rationale. Never expose answer keys, hidden rubric criteria, confidence, analytics labels, or future item answers to the child.
 - For ambiguous or subjective evidence, say that an adult should review it rather than presenting a definitive mistake.
-- Use local MCP retrieval tools and application-controlled evaluation data. Do not write scores, progress, or corrected submissions from this skill.
+- Fetch the evaluation with `get_evaluation` (adult true for rationale and mistake tags) and the activity with `get_activity`; use application-controlled evaluation data. Do not write scores, progress, or corrected submissions from this skill.
 - Preserve the original evaluation and any adult correction as append-only evidence.
